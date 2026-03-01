@@ -1,0 +1,10 @@
+node_modules
+.env
+.git
+.gitignore
+.dockerignore
+.env.example
+README.md
+*.md
+scripts/
+*.tar.gz

@@ -1,0 +1,6 @@
+node_modules
+.env
+*.tar.gz
+.DS_Store
+public/favicon.png
+public/apple-touch-icon.png

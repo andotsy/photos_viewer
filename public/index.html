@@ -1,0 +1,2541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Photos</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <style>
+    :root {
+      --bg: #1a1a1a;
+      --bg-surface: #242424;
+      --bg-hover: #333;
+      --text: #e0e0e0;
+      --text-dim: #888;
+      --accent: #4a9eff;
+      --accent-hover: #6bb3ff;
+      --border: #333;
+      --thumb-size: 200px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow-x: hidden;
+    }
+
+    /* --- Header --- */
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(26, 26, 26, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    .logo {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .stats {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+
+    /* --- Nav --- */
+    nav {
+      display: flex;
+      gap: 2px;
+      background: var(--bg-surface);
+      border-radius: 8px;
+      padding: 3px;
+      flex-shrink: 0;
+    }
+
+    nav button {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      padding: 6px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+
+    nav button:hover { color: var(--text); background: var(--bg-hover); }
+    nav button.active { background: var(--accent); color: #fff; }
+
+    /* --- Controls --- */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .size-slider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .size-slider label {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .size-slider input[type="range"] {
+      width: 100px;
+      accent-color: var(--accent);
+    }
+
+    /* --- Gallery grid --- */
+    .gallery-container {
+      margin-top: 56px;
+      padding: 16px;
+      min-height: calc(100vh - 56px);
+    }
+
+    .date-group {
+      margin-bottom: 32px;
+      content-visibility: auto;
+      contain-intrinsic-size: auto 500px;
+    }
+
+    .date-group:first-child {
+      margin-top: 16px;
+    }
+
+    .date-group h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+      padding-left: 4px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(var(--thumb-size), 1fr));
+      gap: 4px;
+    }
+
+    .thumb {
+      position: relative;
+      aspect-ratio: 1;
+      overflow: hidden;
+      border-radius: 4px;
+      cursor: pointer;
+      background: var(--bg-surface);
+    }
+
+    .thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.2s;
+    }
+
+    .thumb:hover img { transform: scale(1.05); }
+
+    .thumb .badge {
+      position: absolute;
+      bottom: 6px;
+      left: 6px;
+      display: flex;
+      gap: 4px;
+    }
+
+    .thumb .badge span {
+      background: rgba(0,0,0,0.7);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #fff;
+    }
+
+    .thumb .fav-star {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      color: #ffd700;
+      font-size: 14px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+
+    .thumb .video-icon {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 40px;
+      height: 40px;
+      background: rgba(0,0,0,0.5);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .thumb .video-icon::after {
+      content: '';
+      display: block;
+      width: 0;
+      height: 0;
+      border-style: solid;
+      border-width: 8px 0 8px 14px;
+      border-color: transparent transparent transparent #fff;
+      margin-left: 2px;
+    }
+
+    /* --- Loading --- */
+    .loading-sentinel {
+      display: flex;
+      justify-content: center;
+      padding: 40px;
+    }
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 20px;
+      color: var(--text-dim);
+    }
+
+    .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+
+    /* --- Lightbox --- */
+    .lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: #000;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .lightbox.active { display: flex; }
+
+    .lightbox-close {
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      background: none;
+      border: none;
+      color: #fff;
+      padding: 0;
+      cursor: pointer;
+      z-index: 210;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: background 0.15s;
+    }
+
+    .lightbox-close:hover { background: rgba(255,255,255,0.1); }
+
+    .lightbox-download {
+      position: absolute;
+      top: 16px;
+      right: 64px;
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0;
+      cursor: pointer;
+      z-index: 210;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: background 0.15s;
+    }
+
+    .lightbox-download:hover { background: rgba(255,255,255,0.1); }
+
+    .lightbox-download svg {
+      display: block;
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .lightbox-close svg {
+      display: block;
+    }
+
+    .lightbox-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.1);
+      border: none;
+      color: #fff;
+      font-size: 24px;
+      cursor: pointer;
+      width: 48px;
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: background 0.15s;
+      z-index: 210;
+    }
+
+    .lightbox-nav:hover { background: rgba(255,255,255,0.2); }
+    .lightbox-prev { left: 12px; }
+    .lightbox-next { right: 12px; }
+
+    .lightbox-content {
+      position: relative;
+      width: 90vw;
+      height: 85vh;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    .swipe-track {
+      display: flex;
+      width: 300%;
+      height: 100%;
+      transform: translateX(-33.3333%);
+      will-change: transform;
+    }
+
+    .swipe-slide {
+      width: 33.3333%;
+      height: 100%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .lightbox-content img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: 4px;
+      transform-origin: 0 0;
+      cursor: grab;
+      user-select: none;
+      -webkit-user-select: none;
+      will-change: transform;
+    }
+
+    .lightbox-content img.zoomed {
+      cursor: grab;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    .lightbox-content img.panning { cursor: grabbing; }
+
+    .lightbox-content video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: 4px;
+    }
+
+    .lightbox-zoom-hint {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(4px);
+      color: rgba(255,255,255,0.7);
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    .lightbox-quality {
+      position: absolute;
+      top: 16px;
+      left: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 210;
+      pointer-events: none;
+    }
+
+    .lightbox-quality .quality-label {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .lightbox-quality .quality-label.preview {
+      background: rgba(255, 170, 0, 0.25);
+      color: #ffaa00;
+    }
+
+    .lightbox-quality .quality-label.loading {
+      background: rgba(74, 158, 255, 0.25);
+      color: #4a9eff;
+    }
+
+    .lightbox-quality .quality-label.full {
+      background: rgba(0, 200, 83, 0.25);
+      color: #00c853;
+    }
+
+    .lightbox-quality .quality-label.best {
+      background: rgba(0, 200, 83, 0.25);
+      color: #00c853;
+    }
+
+    .quality-progress {
+      width: 40px;
+      height: 3px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .quality-progress-bar {
+      height: 100%;
+      background: #4a9eff;
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.2s;
+    }
+
+    .lightbox-info {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 16px 24px;
+      background: linear-gradient(transparent, rgba(0,0,0,0.8));
+      color: #fff;
+    }
+
+    .lightbox-info .filename {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+
+    .lightbox-info .meta {
+      font-size: 12px;
+      color: rgba(255,255,255,0.6);
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .lightbox-loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    /* --- Map --- */
+    /* Override cluster styles for dark theme */
+    .marker-cluster-small { background-color: rgba(74, 158, 255, 0.5); }
+    .marker-cluster-small div { background-color: rgba(74, 158, 255, 0.8); }
+    .marker-cluster-medium { background-color: rgba(74, 158, 255, 0.5); }
+    .marker-cluster-medium div { background-color: rgba(74, 158, 255, 0.7); }
+    .marker-cluster-large { background-color: rgba(74, 158, 255, 0.5); }
+    .marker-cluster-large div { background-color: rgba(74, 158, 255, 0.6); }
+    .marker-cluster div { color: #fff; }
+
+    /* --- Cluster collage overlay --- */
+    .cluster-collage {
+      display: none;
+      position: fixed;
+      top: 56px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 105;
+      background: var(--bg);
+      overflow-y: auto;
+      padding: 16px;
+      padding-top: 0;
+      -webkit-overflow-scrolling: touch;
+    }
+    .cluster-collage.active { display: block; }
+
+    .cluster-collage-header {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 56px;
+      z-index: 106;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(26, 26, 26, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+    }
+    .cluster-collage-header.active { display: flex; }
+
+    .cluster-collage-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.3px;
+    }
+
+    .cluster-collage-close {
+      background: none;
+      border: none;
+      color: var(--text);
+      font-size: 24px;
+      cursor: pointer;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: background 0.15s;
+    }
+    .cluster-collage-close:hover { background: rgba(255,255,255,0.1); }
+
+    .cluster-collage-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 4px;
+    }
+
+    .cluster-collage-grid .thumb {
+      position: relative;
+      aspect-ratio: 1;
+      overflow: hidden;
+      border-radius: 4px;
+      cursor: pointer;
+      background: var(--bg-surface);
+    }
+    .cluster-collage-grid .thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .cluster-collage-grid .thumb:hover img { transform: scale(1.05); }
+
+    /* --- Search bar --- */
+    .search-toggle {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      transition: color 0.15s;
+    }
+    .search-toggle:hover { color: var(--text); }
+    .search-toggle.active { color: var(--accent); }
+    .search-toggle svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+    .search-panel {
+      display: none;
+      position: fixed;
+      top: 56px;
+      left: 0;
+      right: 0;
+      z-index: 99;
+      background: rgba(26, 26, 26, 0.95);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+    }
+    .search-panel.open { display: block; }
+
+    .search-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .search-row input,
+    .search-row select,
+    .search-row button {
+      height: 36px;
+      box-sizing: border-box;
+    }
+
+    .search-input {
+      flex: 1;
+      min-width: 180px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text);
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .search-input::placeholder { color: var(--text-dim); }
+
+    .search-filter {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text);
+      font-size: 16px;
+      outline: none;
+      cursor: pointer;
+    }
+    .search-filter:focus { border-color: var(--accent); }
+
+    .search-date {
+      padding: 0 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text);
+      font-size: 16px;
+      outline: none;
+    }
+    .search-date:focus { border-color: var(--accent); }
+    /* Fix dark theme date picker icon */
+    .search-date::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+
+    .search-btn {
+      padding: 8px 18px;
+      border-radius: 8px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .search-btn:hover { background: var(--accent-hover); }
+
+    .search-clear {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 16px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .search-clear:hover { color: var(--text); border-color: var(--text-dim); }
+
+    .search-results-info {
+      font-size: 13px;
+      color: var(--accent);
+      padding: 8px 4px 0;
+    }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      header { padding: 0 12px; gap: 8px; }
+      .logo { display: none; }
+      nav button { padding: 6px 12px; }
+      .gallery-container { padding: 8px; }
+      .grid { gap: 2px; }
+      .stats { display: none; }
+      :root { --thumb-size: 120px; }
+      .size-slider label { display: none; }
+      .size-slider input { width: 60px; }
+      .controls { gap: 8px; }
+      .search-panel { padding: 10px 12px; }
+      .search-row { gap: 6px; }
+      .search-input { min-width: 140px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">Photos Viewer</div>
+    <nav id="nav">
+      <button class="active" data-tab="photos">Photos</button>
+      <button data-tab="videos">Videos</button>
+      <button data-tab="map">Map</button>
+    </nav>
+    <div class="controls">
+      <span class="stats" id="stats"></span>
+      <button class="search-toggle" id="searchToggle" title="Search">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </button>
+      <div class="size-slider">
+        <label>Size</label>
+        <input type="range" id="sizeSlider" min="100" max="400" value="200" step="20">
+      </div>
+    </div>
+  </header>
+
+  <div class="search-panel" id="searchPanel">
+    <div class="search-row">
+      <input class="search-input" id="searchInput" type="text" placeholder="Search by filename..." autocomplete="off">
+      <input class="search-date" id="searchFrom" type="date" title="From date">
+      <input class="search-date" id="searchTo" type="date" title="To date">
+      <select class="search-filter" id="searchType">
+        <option value="">All types</option>
+        <option value="photo">Photos only</option>
+        <option value="video">Videos only</option>
+        <option value="heic">HEIC</option>
+        <option value="jpeg">JPEG</option>
+        <option value="png">PNG</option>
+        <option value="gif">GIF</option>
+      </select>
+      <button class="search-btn" id="searchBtn">Search</button>
+      <button class="search-clear" id="searchClear">Clear</button>
+    </div>
+    <div class="search-results-info" id="searchInfo"></div>
+  </div>
+
+  <div class="gallery-container" id="gallery"></div>
+
+  <div id="mapContainer" style="display:none; position:fixed; top:56px; left:0; right:0; bottom:0; z-index:50;">
+    <div id="map" style="width:100%; height:100%;"></div>
+  </div>
+
+  <div class="cluster-collage-header" id="clusterCollageHeader">
+    <span class="cluster-collage-title" id="clusterCollageTitle"></span>
+    <button class="cluster-collage-close" id="clusterCollageClose">&times;</button>
+  </div>
+  <div class="cluster-collage" id="clusterCollage">
+    <div class="cluster-collage-grid" id="clusterCollageGrid"></div>
+  </div>
+
+  <div class="lightbox" id="lightbox">
+    <button class="lightbox-close" id="lbClose"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    <button class="lightbox-download" id="lbDownload" title="Download original">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </button>
+    <div class="lightbox-quality" id="lbQuality"></div>
+    <button class="lightbox-nav lightbox-prev" id="lbPrev">&#8249;</button>
+    <button class="lightbox-nav lightbox-next" id="lbNext">&#8250;</button>
+    <div class="lightbox-content" id="lbContent">
+      <div class="swipe-track" id="swipeTrack">
+        <div class="swipe-slide" id="slidePrev"></div>
+        <div class="swipe-slide" id="slideCurrent"></div>
+        <div class="swipe-slide" id="slideNext"></div>
+      </div>
+    </div>
+    <div class="lightbox-info" id="lbInfo"></div>
+  </div>
+
+  <script>
+    // --- State ---
+    let currentTab = 'photos';
+    let items = [];
+    let loading = false;
+    let hasMore = true;
+    let currentLbIndex = -1;
+    const PAGE_SIZE = 80;
+    let searchMode = false;
+    let searchParams = {};  // { q, from, to, type }
+
+    // --- Elements ---
+    const gallery = document.getElementById('gallery');
+    const statsEl = document.getElementById('stats');
+    const lightbox = document.getElementById('lightbox');
+    const lbContent = document.getElementById('lbContent');
+    const lbInfo = document.getElementById('lbInfo');
+    const lbQuality = document.getElementById('lbQuality');
+    const swipeTrack = document.getElementById('swipeTrack');
+    const slidePrev = document.getElementById('slidePrev');
+    const slideCurrent = document.getElementById('slideCurrent');
+    const slideNext = document.getElementById('slideNext');
+    const lbPrev = document.getElementById('lbPrev');
+    const lbNext = document.getElementById('lbNext');
+    const lbClose = document.getElementById('lbClose');
+    const lbDownload = document.getElementById('lbDownload');
+    const sizeSlider = document.getElementById('sizeSlider');
+    const searchPanel = document.getElementById('searchPanel');
+    const searchToggle = document.getElementById('searchToggle');
+    const searchInput = document.getElementById('searchInput');
+    const searchFrom = document.getElementById('searchFrom');
+    const searchTo = document.getElementById('searchTo');
+    const searchType = document.getElementById('searchType');
+    const searchBtn = document.getElementById('searchBtn');
+    const searchClear = document.getElementById('searchClear');
+    const searchInfo = document.getElementById('searchInfo');
+
+    // --- Init ---
+    loadStats();
+    loadItems();
+
+    // --- Tab navigation ---
+    document.getElementById('nav').addEventListener('click', (e) => {
+      if (e.target.tagName !== 'BUTTON') return;
+      document.querySelectorAll('#nav button').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      currentTab = e.target.dataset.tab;
+      // Exit search mode when switching tabs
+      if (searchMode) {
+        searchMode = false;
+        searchParams = {};
+        searchInfo.textContent = '';
+      }
+      // Toggle map vs gallery view
+      const mapContainer = document.getElementById('mapContainer');
+      if (currentTab === 'map') {
+        gallery.style.display = 'none';
+        mapContainer.style.display = 'block';
+        initMap();
+        return;
+      } else {
+        gallery.style.display = 'block';
+        mapContainer.style.display = 'none';
+      }
+
+      items = [];
+      hasMore = true;
+      gallery.innerHTML = '';
+      loadItems();
+    });
+
+    // --- Size slider ---
+    sizeSlider.addEventListener('input', (e) => {
+      document.documentElement.style.setProperty('--thumb-size', e.target.value + 'px');
+    });
+
+    // --- Search ---
+    function updateGalleryMargin() {
+      if (searchPanel.classList.contains('open')) {
+        gallery.style.marginTop = (56 + searchPanel.offsetHeight) + 'px';
+      } else {
+        gallery.style.marginTop = '56px';
+      }
+    }
+    window.addEventListener('resize', updateGalleryMargin);
+
+    searchToggle.addEventListener('click', () => {
+      const isOpen = searchPanel.classList.toggle('open');
+      searchToggle.classList.toggle('active', isOpen);
+      updateGalleryMargin();
+      if (isOpen) searchInput.focus();
+    });
+
+    function executeSearch() {
+      const q = searchInput.value.trim();
+      const from = searchFrom.value;
+      const to = searchTo.value;
+      const type = searchType.value;
+
+      // Need at least one filter
+      if (!q && !from && !to && !type) return;
+
+      searchMode = true;
+      searchParams = { q, from, to, type };
+      items = [];
+      hasMore = true;
+      loading = false;
+      gallery.innerHTML = '';
+      searchInfo.textContent = 'Searching...';
+
+      // Deactivate nav tabs
+      document.querySelectorAll('#nav button').forEach(b => b.classList.remove('active'));
+
+      loadItems();
+    }
+
+    searchBtn.addEventListener('click', executeSearch);
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') executeSearch();
+    });
+
+    searchClear.addEventListener('click', () => {
+      searchInput.value = '';
+      searchFrom.value = '';
+      searchTo.value = '';
+      searchType.value = '';
+      searchInfo.textContent = '';
+
+      if (searchMode) {
+        searchMode = false;
+        searchParams = {};
+        items = [];
+        hasMore = true;
+        gallery.innerHTML = '';
+        // Re-activate first tab
+        currentTab = 'photos';
+        const navBtns = document.querySelectorAll('#nav button');
+        navBtns.forEach(b => b.classList.remove('active'));
+        navBtns[0].classList.add('active');
+        loadItems();
+      }
+    });
+
+    // --- Map ---
+    let leafletMap = null;
+    let mapMarkers = null;
+    let mapDataLoaded = false;
+
+    async function initMap() {
+      // Initialize Leaflet once
+      if (!leafletMap) {
+        leafletMap = L.map('map', {
+          zoomControl: true,
+          attributionControl: true,
+        }).setView([48.45, 22.0], 5); // Default: centered on Ukraine
+
+        // Dark tile layer (CartoDB dark)
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap &copy; CARTO',
+          subdomains: 'abcd',
+          maxZoom: 19,
+        }).addTo(leafletMap);
+
+        mapMarkers = L.markerClusterGroup({
+          maxClusterRadius: 50,
+          spiderfyOnMaxZoom: true,
+          showCoverageOnHover: false,
+          chunkedLoading: true,
+          zoomToBoundsOnClick: false, // we handle cluster clicks ourselves
+        });
+        leafletMap.addLayer(mapMarkers);
+
+        // Cluster click -> show collage overlay
+        mapMarkers.on('clusterclick', (e) => {
+          const childMarkers = e.layer.getAllChildMarkers();
+          const photoIds = childMarkers.map(m => m._photoData).filter(Boolean);
+          showClusterCollage(photoIds);
+        });
+      }
+
+      // Force Leaflet to recalculate size (it may have been hidden)
+      setTimeout(() => leafletMap.invalidateSize(), 100);
+
+      if (mapDataLoaded) return;
+
+      // Load geo data
+      try {
+        const res = await fetch('/api/geo-photos');
+        const data = await res.json();
+        mapDataLoaded = true;
+
+        const markers = [];
+        for (const m of data.markers) {
+          const marker = L.marker([m.lat, m.lng], {
+            icon: L.divIcon({
+              className: 'map-photo-marker',
+              html: `<img src="/api/thumb/${m.id}?size=60" style="width:40px;height:40px;border-radius:4px;object-fit:cover;border:2px solid rgba(255,255,255,0.8);box-shadow:0 1px 4px rgba(0,0,0,0.4);">`,
+              iconSize: [44, 44],
+              iconAnchor: [22, 22],
+            }),
+          });
+
+          // Store photo data on the marker for cluster collage
+          marker._photoData = { id: m.id, date: m.date, isVideo: m.isVideo };
+
+          // Single marker click -> show collage with 1 photo (consistent UX)
+          marker.on('click', () => {
+            showClusterCollage([{ id: m.id, date: m.date, isVideo: m.isVideo }]);
+          });
+
+          markers.push(marker);
+        }
+        mapMarkers.addLayers(markers);
+
+        // Fit map to markers bounds
+        if (markers.length > 0) {
+          const bounds = mapMarkers.getBounds();
+          leafletMap.fitBounds(bounds, { padding: [30, 30] });
+        }
+
+        console.log(`Map loaded: ${data.total} geotagged photos`);
+      } catch (err) {
+        console.error('Map data error:', err.message);
+      }
+    }
+
+    // --- Cluster collage ---
+    const clusterCollage = document.getElementById('clusterCollage');
+    const clusterCollageGrid = document.getElementById('clusterCollageGrid');
+    const clusterCollageTitle = document.getElementById('clusterCollageTitle');
+    const clusterCollageHeader = document.getElementById('clusterCollageHeader');
+    let clusterCollageItems = []; // all items for this cluster
+    let collageRendered = 0;
+    const COLLAGE_PAGE = 40;
+    let collageScrollTicking = false;
+
+    function showClusterCollage(photoDataList) {
+      // Sort by date descending
+      photoDataList.sort((a, b) => (b.date || 0) - (a.date || 0));
+      clusterCollageItems = photoDataList;
+      collageRendered = 0;
+
+      clusterCollageTitle.textContent = `${photoDataList.length} photo${photoDataList.length !== 1 ? 's' : ''}`;
+      clusterCollageGrid.innerHTML = '';
+      clusterCollage.scrollTop = 0;
+      clusterCollage.classList.add('active');
+      clusterCollageHeader.classList.add('active');
+
+      // Render first batch after layout
+      requestAnimationFrame(() => renderCollageBatch());
+    }
+
+    function renderCollageBatch() {
+      if (collageRendered >= clusterCollageItems.length) return;
+
+      const end = Math.min(collageRendered + COLLAGE_PAGE, clusterCollageItems.length);
+      const frag = document.createDocumentFragment();
+
+      for (let i = collageRendered; i < end; i++) {
+        const p = clusterCollageItems[i];
+        const thumb = document.createElement('div');
+        thumb.className = 'thumb';
+
+        // Build thumb content — no loading="lazy" (doesn't work in fixed containers)
+        const img = document.createElement('img');
+        img.src = `/api/thumb/${p.id}?size=300`;
+        img.alt = '';
+        thumb.appendChild(img);
+
+        if (p.isVideo) {
+          const videoIcon = document.createElement('div');
+          videoIcon.className = 'video-icon';
+          thumb.appendChild(videoIcon);
+        }
+
+        if (p.date) {
+          const dateStr = new Date(p.date).toLocaleDateString('en-US', {
+            year: 'numeric', month: 'short', day: 'numeric'
+          });
+          const badge = document.createElement('div');
+          badge.className = 'badge';
+          badge.innerHTML = `<span>${dateStr}</span>`;
+          thumb.appendChild(badge);
+        }
+
+        const idx = i;
+        thumb.addEventListener('click', () => {
+          items = clusterCollageItems.map(d => ({ id: d.id, isVideo: d.isVideo }));
+          openLightbox(idx);
+        });
+
+        frag.appendChild(thumb);
+      }
+
+      clusterCollageGrid.appendChild(frag);
+      collageRendered = end;
+    }
+
+    // Scroll-driven infinite load — throttled with rAF
+    clusterCollage.addEventListener('scroll', () => {
+      if (collageScrollTicking) return;
+      if (collageRendered >= clusterCollageItems.length) return;
+      collageScrollTicking = true;
+      requestAnimationFrame(() => {
+        collageScrollTicking = false;
+        if (clusterCollage.scrollHeight - clusterCollage.scrollTop - clusterCollage.clientHeight < 800) {
+          renderCollageBatch();
+        }
+      });
+    }, { passive: true });
+
+    function closeClusterCollage() {
+      clusterCollage.classList.remove('active');
+      clusterCollageHeader.classList.remove('active');
+      clusterCollageGrid.innerHTML = '';
+      clusterCollageItems = [];
+      collageRendered = 0;
+    }
+
+    document.getElementById('clusterCollageClose').addEventListener('click', closeClusterCollage);
+
+    // Close collage on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && clusterCollage.classList.contains('active') && !lightbox.classList.contains('active')) {
+        closeClusterCollage();
+      }
+    });
+
+    // --- Infinite scroll ---
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && !loading && hasMore) {
+        loadItems();
+      }
+    }, { rootMargin: '600px' });
+
+    // --- Load stats ---
+    async function loadStats() {
+      const res = await fetch('/api/stats');
+      const data = await res.json();
+      statsEl.textContent = `${data.photos.toLocaleString()} photos · ${data.videos.toLocaleString()} videos`;
+    }
+
+    // --- Load items ---
+    async function loadItems() {
+      if (loading || !hasMore) return;
+      loading = true;
+
+      const sentinel = document.querySelector('.loading-sentinel');
+      if (!sentinel) {
+        gallery.insertAdjacentHTML('beforeend', '<div class="loading-sentinel"><div class="spinner"></div></div>');
+      }
+
+      const offset = items.length;
+      let url;
+      if (searchMode) {
+        const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
+        if (searchParams.q) params.set('q', searchParams.q);
+        if (searchParams.from) params.set('from', searchParams.from);
+        if (searchParams.to) params.set('to', searchParams.to);
+        if (searchParams.type) params.set('type', searchParams.type);
+        url = `/api/search?${params}`;
+      } else {
+        url = `/api/${currentTab}?limit=${PAGE_SIZE}&offset=${offset}`;
+      }
+
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.items.length === 0 || offset + data.items.length >= data.total) {
+          hasMore = false;
+        }
+
+        // Update search results info
+        if (searchMode) {
+          searchInfo.textContent = `${data.total.toLocaleString()} result${data.total !== 1 ? 's' : ''} found`;
+        }
+
+        items.push(...data.items);
+        renderNewItems(data.items, offset);
+      } catch (err) {
+        console.error('loadItems error:', err);
+        hasMore = false;
+        if (searchMode) searchInfo.textContent = 'Search failed';
+      } finally {
+        loading = false;
+      }
+
+      // Remove old sentinel, add new one
+      document.querySelectorAll('.loading-sentinel').forEach(el => {
+        observer.unobserve(el);
+        el.remove();
+      });
+
+      if (hasMore) {
+        gallery.insertAdjacentHTML('beforeend', '<div class="loading-sentinel"><div class="spinner"></div></div>');
+        observer.observe(document.querySelector('.loading-sentinel'));
+      }
+    }
+
+    // --- Render items grouped by date ---
+    function renderNewItems(newItems, startIndex) {
+      // Group by date
+      const groups = {};
+      newItems.forEach((item, i) => {
+        const date = item.dateCreated ? new Date(item.dateCreated) : null;
+        const key = date ? formatDateGroup(date) : 'Unknown Date';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push({ item, index: startIndex + i });
+      });
+
+      const sentinel = document.querySelector('.loading-sentinel');
+
+      for (const [dateLabel, entries] of Object.entries(groups)) {
+        // Check if we already have this date group
+        let group = document.querySelector(`[data-date="${CSS.escape(dateLabel)}"]`);
+        let grid;
+
+        if (!group) {
+          group = document.createElement('div');
+          group.className = 'date-group';
+          group.dataset.date = dateLabel;
+          group.innerHTML = `<h2>${dateLabel}</h2><div class="grid"></div>`;
+          if (sentinel) {
+            gallery.insertBefore(group, sentinel);
+          } else {
+            gallery.appendChild(group);
+          }
+        }
+
+        grid = group.querySelector('.grid');
+
+        entries.forEach(({ item, index }) => {
+          const thumb = document.createElement('div');
+          thumb.className = 'thumb';
+          thumb.dataset.index = index;
+
+          const isVideo = item.isVideo;
+          let html = `<img loading="lazy" src="/api/thumb/${item.id}?size=300" alt="">`;
+
+          if (isVideo) {
+            html += `<div class="video-icon"></div>`;
+            if (item.duration) {
+              html += `<div class="badge"><span>${formatDuration(item.duration)}</span></div>`;
+            }
+          }
+
+          if (item.favorite) {
+            html += `<span class="fav-star">&#9733;</span>`;
+          }
+
+          thumb.innerHTML = html;
+          thumb.addEventListener('click', () => openLightbox(index));
+          grid.appendChild(thumb);
+        });
+      }
+    }
+
+    // --- Lightbox ---
+    let zoomLevel = 1;
+    let panX = 0, panY = 0;
+    let isPanning = false;
+    let panStartX = 0, panStartY = 0;
+    let panStartPanX = 0, panStartPanY = 0;
+    const MIN_ZOOM = 1;
+    const MAX_ZOOM = 8;
+
+    function openLightbox(index) {
+      currentLbIndex = index;
+      lightbox.classList.add('active');
+      document.body.style.overflow = 'hidden';
+      // Restore UI in case it was hidden by drag-dismiss or zoom
+      lbPrev.style.display = '';
+      lbNext.style.display = '';
+      lbClose.style.display = '';
+      lbDownload.style.display = '';
+      lbInfo.style.display = '';
+      lbQuality.style.display = '';
+      resetZoom();
+      showLightboxItem(index);
+    }
+
+    function closeLightbox() {
+      // Pause any playing video
+      const video = slideCurrent.querySelector('video');
+      if (video) { video.pause(); video.onerror = null; video.removeAttribute('src'); video.load(); }
+      abortFullRes();
+      lightbox.classList.remove('active');
+      document.body.style.overflow = '';
+      slidePrev.innerHTML = '';
+      slideCurrent.innerHTML = '';
+      slideNext.innerHTML = '';
+      swipeTrack.style.transition = '';
+      swipeTrack.style.transform = 'translateX(-33.3333%)';
+      lbInfo.innerHTML = '';
+      lbQuality.innerHTML = '';
+      lbContent.style.width = '';
+      lbContent.style.height = '';
+      currentLbIndex = -1;
+      resetZoom();
+    }
+
+    // --- Progressive loading system ---
+    let fullResAbort = null; // current AbortController
+
+    // LRU cache: id -> blob URL (max 3 entries)
+    const FULL_RES_CACHE_MAX = 3;
+    const fullResCache = new Map(); // insertion order = LRU order
+
+    function fullResCacheSet(id, blobUrl) {
+      // If already cached, delete to re-insert at end (most recent)
+      if (fullResCache.has(id)) {
+        fullResCache.delete(id);
+      }
+      // Evict oldest if at capacity
+      while (fullResCache.size >= FULL_RES_CACHE_MAX) {
+        const oldestKey = fullResCache.keys().next().value;
+        const oldestUrl = fullResCache.get(oldestKey);
+        URL.revokeObjectURL(oldestUrl);
+        fullResCache.delete(oldestKey);
+      }
+      fullResCache.set(id, blobUrl);
+    }
+
+    function fullResCacheTouch(id) {
+      if (!fullResCache.has(id)) return;
+      const url = fullResCache.get(id);
+      fullResCache.delete(id);
+      fullResCache.set(id, url);
+    }
+
+    function abortFullRes() {
+      if (fullResAbort) {
+        fullResAbort.abort();
+        fullResAbort = null;
+      }
+    }
+
+    // --- Preview cache for adjacent slides ---
+    // Keeps loaded Image elements so prev/next slides are instant
+    const previewImgCache = new Map(); // id -> { src, loaded }
+
+    function getPreviewSrc(item) {
+      if (!item || item.isVideo) return null;
+      const cached = fullResCache.get(item.id);
+      if (cached) return cached;
+      return `/api/preview/${item.id}`;
+    }
+
+    function populateSlide(slide, item) {
+      slide.innerHTML = '';
+      if (!item || item.isVideo) return;
+      const src = getPreviewSrc(item);
+      if (!src) return;
+      const img = new Image();
+      img.draggable = false;
+      img.src = src;
+      slide.appendChild(img);
+    }
+
+    function preloadAdjacentPreviews() {
+      // Populate prev/next slides with preview images
+      const prevItem = currentLbIndex > 0 ? items[currentLbIndex - 1] : null;
+      const nextItem = currentLbIndex < items.length - 1 ? items[currentLbIndex + 1] : null;
+      populateSlide(slidePrev, prevItem);
+      populateSlide(slideNext, nextItem);
+    }
+
+    function showQuality(state) {
+      if (state === 'preview') {
+        lbQuality.innerHTML = `
+          <span class="quality-label preview">Preview</span>
+          <div class="quality-progress"><div class="quality-progress-bar" id="qProgress"></div></div>
+        `;
+      } else if (state === 'loading') {
+        lbQuality.innerHTML = `
+          <span class="quality-label loading">Loading HD</span>
+          <div class="quality-progress"><div class="quality-progress-bar" id="qProgress"></div></div>
+        `;
+      } else if (state === 'full') {
+        lbQuality.innerHTML = '<span class="quality-label full">Full Quality</span>';
+        // Auto-hide after 2s
+        setTimeout(() => {
+          if (lbQuality.querySelector('.full')) {
+            lbQuality.innerHTML = '';
+          }
+        }, 2000);
+      } else if (state === 'best') {
+        lbQuality.innerHTML = '<span class="quality-label best">Best Available</span>';
+        setTimeout(() => {
+          if (lbQuality.querySelector('.best')) {
+            lbQuality.innerHTML = '';
+          }
+        }, 2000);
+      } else {
+        lbQuality.innerHTML = '';
+      }
+    }
+
+    function setProgress(pct) {
+      const bar = document.getElementById('qProgress');
+      if (bar) bar.style.width = Math.round(pct) + '%';
+    }
+
+    function loadProgressive(item) {
+      // Step 1: Load preview (derivative) immediately
+      const previewImg = new Image();
+      previewImg.draggable = false;
+      previewImg.src = `/api/preview/${item.id}`;
+      showQuality('preview');
+
+      // Show spinner while preview loads
+      slideCurrent.innerHTML = '<div class="lightbox-loading"><div class="spinner"></div></div>';
+
+      previewImg.onload = () => {
+        // Only place if this is still the current item
+        if (items[currentLbIndex]?.id !== item.id) return;
+        // Clear handler so it doesn't re-fire when full-res swaps the src
+        previewImg.onload = null;
+        slideCurrent.innerHTML = '';
+        slideCurrent.appendChild(previewImg);
+        showQuality('loading');
+        // Step 2: Start loading full-res in background
+        loadFullRes(item, previewImg);
+      };
+
+      previewImg.onerror = () => {
+        if (items[currentLbIndex]?.id !== item.id) return;
+        previewImg.onerror = null;
+        // Preview failed — try full-res directly
+        showQuality('loading');
+        loadFullRes(item, null);
+      };
+    }
+
+    function loadFullRes(item, previewImg) {
+      const controller = new AbortController();
+      fullResAbort = controller;
+
+      fetch(`/api/photo/${item.id}`, { signal: controller.signal })
+        .then(response => {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+
+          // If server says this is only derivative quality, don't bother swapping
+          const quality = response.headers.get('X-Quality');
+          const isDerivativeOnly = quality === 'derivative';
+
+          const contentLength = response.headers.get('Content-Length');
+          const total = contentLength ? parseInt(contentLength, 10) : 0;
+          let loaded = 0;
+
+          const reader = response.body.getReader();
+          const chunks = [];
+
+          function pump() {
+            return reader.read().then(({ done, value }) => {
+              if (done) return;
+              chunks.push(value);
+              loaded += value.length;
+              if (total > 0) {
+                setProgress((loaded / total) * 100);
+              } else {
+                // Unknown size: pulse between 10-90%
+                setProgress(Math.min(90, 10 + (loaded / 1000000) * 20));
+              }
+              return pump();
+            });
+          }
+
+          return pump().then(() => {
+            const blob = new Blob(chunks, {
+              type: response.headers.get('Content-Type') || 'image/jpeg'
+            });
+            return { blob, isDerivativeOnly };
+          });
+        })
+        .then(({ blob, isDerivativeOnly }) => {
+          // Check if still the current item (user may have navigated)
+          if (items[currentLbIndex]?.id !== item.id) return;
+
+          const blobUrl = URL.createObjectURL(blob);
+          fullResCacheSet(item.id, blobUrl);
+
+          // Decode the full-res image off-screen before swapping
+          const fullImg = new Image();
+          fullImg.draggable = false;
+          fullImg.src = blobUrl;
+          fullImg.onload = () => {
+            if (items[currentLbIndex]?.id !== item.id) return;
+            // Preserve zoom state if user zoomed into the preview
+            const wasZoomed = zoomLevel > 1;
+            // Swap src on existing img to avoid black flash
+            // Browser keeps old pixels until new src paints
+            const existing = slideCurrent.querySelector('img');
+            if (existing) {
+              existing.src = blobUrl;
+            } else {
+              // No existing img (e.g. spinner only) — add new
+              slideCurrent.innerHTML = '';
+              slideCurrent.appendChild(fullImg);
+            }
+            if (wasZoomed) renderZoom();
+            showQuality(isDerivativeOnly ? 'best' : 'full');
+          };
+          fullImg.onerror = () => {
+            // Browser can't decode this format (e.g. HEIC on Chrome/Linux)
+            // Re-fetch as JPEG conversion
+            console.warn('Browser cannot decode full-res image for', item.id, '— retrying as JPEG');
+            URL.revokeObjectURL(blobUrl);
+            fullResCache.delete(item.id);
+            if (items[currentLbIndex]?.id === item.id) {
+              loadFullResJpeg(item);
+            }
+          };
+          fullResAbort = null;
+        })
+        .catch(err => {
+          if (err.name === 'AbortError') return; // expected on navigate/close
+          console.warn('Full-res load failed:', err.message);
+          // Stay on preview — it's good enough
+          if (items[currentLbIndex]?.id === item.id) {
+            showQuality('');
+          }
+          fullResAbort = null;
+        });
+    }
+
+    // Fallback: re-fetch as server-converted JPEG (for browsers that can't decode HEIC)
+    function loadFullResJpeg(item) {
+      showQuality('loading');
+      const controller = new AbortController();
+      fullResAbort = controller;
+
+      fetch(`/api/photo/${item.id}?format=jpeg`, { signal: controller.signal })
+        .then(response => {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          const contentLength = response.headers.get('Content-Length');
+          const total = contentLength ? parseInt(contentLength, 10) : 0;
+          let loaded = 0;
+          const reader = response.body.getReader();
+          const chunks = [];
+
+          function pump() {
+            return reader.read().then(({ done, value }) => {
+              if (done) return;
+              chunks.push(value);
+              loaded += value.length;
+              if (total > 0) setProgress((loaded / total) * 100);
+              else setProgress(Math.min(90, 10 + (loaded / 1000000) * 20));
+              return pump();
+            });
+          }
+
+          return pump().then(() => new Blob(chunks, {
+            type: response.headers.get('Content-Type') || 'image/jpeg'
+          }));
+        })
+        .then(blob => {
+          if (items[currentLbIndex]?.id !== item.id) return;
+          const blobUrl = URL.createObjectURL(blob);
+          fullResCacheSet(item.id, blobUrl);
+          const img = new Image();
+          img.draggable = false;
+          img.src = blobUrl;
+          img.onload = () => {
+            if (items[currentLbIndex]?.id !== item.id) return;
+            const wasZoomed = zoomLevel > 1;
+            const existing = slideCurrent.querySelector('img');
+            if (existing) {
+              existing.src = blobUrl;
+            } else {
+              slideCurrent.innerHTML = '';
+              slideCurrent.appendChild(img);
+            }
+            if (wasZoomed) renderZoom();
+            showQuality('full');
+          };
+          img.onerror = () => {
+            // Even JPEG conversion failed — stay on preview
+            URL.revokeObjectURL(blobUrl);
+            fullResCache.delete(item.id);
+            if (items[currentLbIndex]?.id === item.id) showQuality('best');
+          };
+          fullResAbort = null;
+        })
+        .catch(err => {
+          if (err.name === 'AbortError') return;
+          console.warn('JPEG fallback failed:', err.message);
+          if (items[currentLbIndex]?.id === item.id) showQuality('best');
+          fullResAbort = null;
+        });
+    }
+
+    function resetZoom() {
+      zoomLevel = 1;
+      targetZoom = 1;
+      panX = 0;
+      panY = 0;
+      targetPanX = 0;
+      targetPanY = 0;
+      cancelAnimationFrame(zoomRaf);
+      zoomRaf = 0;
+      renderZoom();
+    }
+
+    function getZoomImg() {
+      return slideCurrent.querySelector('img');
+    }
+
+    function getMediaEl() {
+      return slideCurrent.querySelector('img') || slideCurrent.querySelector('video');
+    }
+
+    function isCurrentVideo() {
+      return !!slideCurrent.querySelector('video');
+    }
+
+    // Creates a video element inside a wrapper container.
+    // Native controls are enabled. Touch events from the video bubble up to
+    // lbContent where the existing swipe/dismiss handlers pick them up.
+    function createVideoEl(id) {
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;';
+
+      const video = document.createElement('video');
+      video.controls = true;
+      video.preload = 'auto';
+      video.playsInline = true;
+      video.src = `/api/video/${id}`;
+
+      wrapper.appendChild(video);
+      return { wrapper, video };
+    }
+
+    // --- Zoom geometry helpers ---
+    // Returns the fitted image dimensions at zoom=1 (image scaled to fit container)
+    function getFitDims(img) {
+      const cw = lbContent.clientWidth;
+      const ch = lbContent.clientHeight;
+      const nw = img.naturalWidth || img.width;
+      const nh = img.naturalHeight || img.height;
+      if (!nw || !nh) return { fitW: cw, fitH: ch, cw, ch };
+      const s = Math.min(cw / nw, ch / nh);
+      return { fitW: nw * s, fitH: nh * s, cw, ch };
+    }
+
+    // Compute centered pan for a given zoom and image dims
+    function centeredPan(fitW, fitH, cw, ch, z) {
+      return {
+        x: (cw - fitW * z) / 2,
+        y: (ch - fitH * z) / 2,
+      };
+    }
+
+    // Clamp pan so image edges don't leave empty space (when image > container)
+    function clampPan(px, py, fitW, fitH, cw, ch, z) {
+      const sw = fitW * z;
+      const sh = fitH * z;
+      if (sw <= cw) {
+        px = (cw - sw) / 2;
+      } else {
+        px = Math.min(0, Math.max(cw - sw, px));
+      }
+      if (sh <= ch) {
+        py = (ch - sh) / 2;
+      } else {
+        py = Math.min(0, Math.max(ch - sh, py));
+      }
+      return { x: px, y: py };
+    }
+
+    // --- Render: apply current zoomLevel + panX/panY to the DOM ---
+    function renderZoom() {
+      const img = getZoomImg();
+      if (!img) return;
+
+      const isZoomed = zoomLevel > 1.001;
+
+      // Hide/show all UI elements based on zoom
+      lbPrev.style.display = isZoomed ? 'none' : '';
+      lbNext.style.display = isZoomed ? 'none' : '';
+      lbClose.style.display = isZoomed ? 'none' : '';
+      lbDownload.style.display = isZoomed ? 'none' : '';
+      lbInfo.style.display = isZoomed ? 'none' : '';
+      lbQuality.style.display = isZoomed ? 'none' : '';
+
+      // Expand lightbox-content to fullscreen when zoomed, restore when not
+      if (isZoomed) {
+        lbContent.style.width = '100vw';
+        lbContent.style.height = '100vh';
+      } else {
+        lbContent.style.width = '';
+        lbContent.style.height = '';
+      }
+
+      // Get fit dimensions AFTER container resize so cw/ch reflect actual size
+      const { fitW, fitH, cw, ch } = getFitDims(img);
+
+      if (!isZoomed) {
+        zoomLevel = 1;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.maxWidth = '';
+        img.style.maxHeight = '';
+        img.style.transform = '';
+        img.style.transformOrigin = '0 0';
+        img.style.position = '';
+        img.style.top = '';
+        img.style.left = '';
+        img.classList.remove('zoomed');
+        panX = 0;
+        panY = 0;
+      } else {
+        const sw = fitW * zoomLevel;
+        const sh = fitH * zoomLevel;
+        const clamped = clampPan(panX, panY, fitW, fitH, cw, ch, zoomLevel);
+        panX = clamped.x;
+        panY = clamped.y;
+
+        img.style.maxWidth = '';
+        img.style.maxHeight = '';
+        img.style.width = sw + 'px';
+        img.style.height = sh + 'px';
+        img.style.transformOrigin = '0 0';
+        img.style.transform = `translate(${panX}px, ${panY}px)`;
+        img.classList.add('zoomed');
+      }
+    }
+
+    // --- Smooth animated zoom ---
+    let targetZoom = 1;
+    let targetPanX = 0;
+    let targetPanY = 0;
+    let zoomRaf = 0;
+    const ZOOM_LERP = 0.15; // interpolation factor per frame (0-1, lower = smoother)
+
+    function animateZoom() {
+      const dz = Math.abs(zoomLevel - targetZoom);
+      const dp = Math.abs(panX - targetPanX) + Math.abs(panY - targetPanY);
+
+      if (dz < 0.001 && dp < 0.5) {
+        // Close enough — snap to target
+        zoomLevel = targetZoom;
+        panX = targetPanX;
+        panY = targetPanY;
+        renderZoom();
+        zoomRaf = 0;
+        return;
+      }
+
+      zoomLevel += (targetZoom - zoomLevel) * ZOOM_LERP;
+      panX += (targetPanX - panX) * ZOOM_LERP;
+      panY += (targetPanY - panY) * ZOOM_LERP;
+      renderZoom();
+      zoomRaf = requestAnimationFrame(animateZoom);
+    }
+
+    function startZoomAnimation() {
+      if (!zoomRaf) {
+        zoomRaf = requestAnimationFrame(animateZoom);
+      }
+    }
+
+    // Zoom toward a point (clientX, clientY) to a new zoom level, animated
+    function zoomAt(clientX, clientY, newZoom) {
+      const img = getZoomImg();
+      if (!img) return;
+
+      const { fitW, fitH, cw, ch } = getFitDims(img);
+      newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, newZoom));
+
+      const rect = lbContent.getBoundingClientRect();
+      const mx = clientX - rect.left;
+      const my = clientY - rect.top;
+
+      // Current pan at the "from" zoom (use target values so chained scrolls compose)
+      let fromZoom = targetZoom;
+      let fromPX = targetPanX;
+      let fromPY = targetPanY;
+
+      if (fromZoom <= 1.001) {
+        // Starting from fit mode — image is centered
+        const c = centeredPan(fitW, fitH, cw, ch, 1);
+        fromPX = c.x;
+        fromPY = c.y;
+        fromZoom = 1;
+      }
+
+      // The point under the cursor in image-space (0..fitW)
+      const imgX = (mx - fromPX) / fromZoom;
+      const imgY = (my - fromPY) / fromZoom;
+
+      // After zoom, that same image point should stay under the cursor
+      const newPX = mx - imgX * newZoom;
+      const newPY = my - imgY * newZoom;
+
+      // Clamp
+      const clamped = clampPan(newPX, newPY, fitW, fitH, cw, ch, newZoom);
+
+      targetZoom = newZoom;
+      targetPanX = clamped.x;
+      targetPanY = clamped.y;
+      startZoomAnimation();
+    }
+
+    // Zoom toward center (for keyboard +/-)
+    function zoomCenter(newZoom) {
+      const rect = lbContent.getBoundingClientRect();
+      zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, newZoom);
+    }
+
+    // Smooth reset to zoom=1
+    function animateResetZoom() {
+      const img = getZoomImg();
+      if (!img) { resetZoom(); return; }
+      targetZoom = 1;
+      targetPanX = 0;
+      targetPanY = 0;
+      startZoomAnimation();
+    }
+
+    // --- Mouse wheel zoom ---
+    // --- Two-finger trackpad swipe (horizontal wheel) + zoom (vertical wheel) ---
+    let wheelSwipeAccum = 0;       // accumulated horizontal scroll px
+    let wheelSwipeRaf = 0;         // rAF handle for snap-back / navigate animation
+    let wheelSwipeSettleTimer = 0; // debounce: detect end of gesture
+    let wheelSwipeCooldown = 0;    // timestamp: ignore wheel events until cooldown expires
+
+    lbContent.addEventListener('wheel', (e) => {
+      const media = getMediaEl();
+      if (!media) return;
+      const img = getZoomImg(); // null if video
+      e.preventDefault();
+
+      // macOS trackpad pinch-to-zoom sends wheel events with ctrlKey=true
+      // Two-finger scroll/swipe sends ctrlKey=false
+      const isPinchZoom = e.ctrlKey;
+
+      if (isPinchZoom && img) {
+        // Pinch-to-zoom: photos only
+        const delta = -Math.max(-0.5, Math.min(0.5, e.deltaY));
+        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom + delta * 0.25 * targetZoom));
+        zoomAt(e.clientX, e.clientY, newZoom);
+        return;
+      }
+
+      const ax = Math.abs(e.deltaX);
+      const ay = Math.abs(e.deltaY);
+
+      // At zoom=1: two-finger horizontal scroll → swipe navigate
+      // More lenient threshold since ctrlKey already filters out pinch gestures
+      if (zoomLevel <= 1.001 && targetZoom <= 1.001 && ax > 2) {
+        // Cooldown: ignore momentum events after a swipe was committed
+        if (Date.now() < wheelSwipeCooldown) return;
+        wheelSwipeAccum -= e.deltaX; // invert: swipe right = positive
+        // Clamp so the track can't move more than one slide width
+        const cw = lbContent.clientWidth;
+        const maxDrag = cw; // one full slide width
+        wheelSwipeAccum = Math.max(-maxDrag, Math.min(maxDrag, wheelSwipeAccum));
+        // Rubber band at boundaries (first/last photo)
+        let drag = wheelSwipeAccum;
+        if (drag > 0 && currentLbIndex === 0) drag = drag * 0.2;
+        if (drag < 0 && currentLbIndex >= items.length - 1) drag = drag * 0.2;
+
+        // Move the swipe track — center is at -33.3333%, offset by drag in px
+        const basePct = -33.3333;
+        const offsetPct = (drag / cw) * 33.3333;
+        swipeTrack.style.transition = 'none';
+        swipeTrack.style.transform = `translateX(${basePct + offsetPct}%)`;
+
+        // Fast-commit: if drag exceeds 40% threshold during momentum, commit immediately
+        const threshold = cw * 0.4;
+        clearTimeout(wheelSwipeSettleTimer);
+        if (Math.abs(wheelSwipeAccum) > threshold) {
+          const dir = wheelSwipeAccum < 0 ? 1 : -1; // negative accum = swiped left = next
+          const canNav = dir === 1 ? currentLbIndex < items.length - 1 : currentLbIndex > 0;
+          if (canNav) {
+            finishSwipe(wheelSwipeAccum);
+            wheelSwipeAccum = 0;
+            return;
+          }
+        }
+
+        // Reset settle timer — fires when fingers stop
+        wheelSwipeSettleTimer = setTimeout(() => {
+          finishSwipe(wheelSwipeAccum);
+          wheelSwipeAccum = 0;
+        }, 150);
+        return;
+      }
+
+      // Vertical-only two-finger scroll at zoom=1: ignore (don't zoom from scroll)
+      if (zoomLevel <= 1.001 && targetZoom <= 1.001) return;
+
+      // When zoomed in: use vertical scroll to zoom further (photos only)
+      if (!img) return;
+      const delta = -Math.max(-0.5, Math.min(0.5, e.deltaY));
+      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom + delta * 0.25 * targetZoom));
+      zoomAt(e.clientX, e.clientY, newZoom);
+    }, { passive: false });
+
+    // Double-click to toggle zoom
+    // --- Double-tap zoom (touch) ---
+    let lastTapTime = 0;
+    let lastTapX = 0;
+    let lastTapY = 0;
+    let touchStartTime = 0;
+
+    lbContent.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) touchStartTime = Date.now();
+    }, { passive: true });
+
+    lbContent.addEventListener('touchend', (e) => {
+      if (e.touches.length !== 0) return;
+      // A "tap" = short duration, minimal movement
+      const touch = e.changedTouches[0];
+      const elapsed = Date.now() - touchStartTime;
+      const movedX = Math.abs(touch.clientX - swipeStartX);
+      const movedY = Math.abs(touch.clientY - swipeStartY);
+      if (elapsed > 250 || movedX > 15 || movedY > 15) {
+        lastTapTime = 0;
+        return;
+      }
+
+      // Single tap on video: no-op (use native controls)
+      if (isCurrentVideo()) {
+        lastTapTime = 0;
+        return;
+      }
+
+      const now = Date.now();
+      const dx = touch.clientX - lastTapX;
+      const dy = touch.clientY - lastTapY;
+      if (now - lastTapTime < 350 && Math.abs(dx) < 30 && Math.abs(dy) < 30) {
+        e.preventDefault();
+        const img = getZoomImg();
+        if (!img) return;
+        if (targetZoom > 1.05) {
+          animateResetZoom();
+        } else {
+          zoomAt(touch.clientX, touch.clientY, 3);
+        }
+        lastTapTime = 0;
+      } else {
+        lastTapTime = now;
+        lastTapX = touch.clientX;
+        lastTapY = touch.clientY;
+      }
+    });
+
+    lbContent.addEventListener('dblclick', (e) => {
+      // Video: no zoom on double-click (use native controls)
+      if (isCurrentVideo()) return;
+      const img = getZoomImg();
+      if (!img) return;
+      e.preventDefault();
+      if (targetZoom > 1.05) {
+        animateResetZoom();
+      } else {
+        zoomAt(e.clientX, e.clientY, 3);
+      }
+    });
+
+    // --- Mouse drag pan (zoomed) / swipe nav (not zoomed) ---
+    let swipeDragX = 0;       // current drag offset during swipe
+    let swipeStartX = 0;      // mousedown/touchstart X
+    let swipeStartY = 0;
+    let isSwiping = false;    // true when doing horizontal swipe at zoom=1
+    let swipeLocked = false;  // direction locked (horizontal vs vertical)
+
+    lbContent.addEventListener('mousedown', (e) => {
+      const media = getMediaEl();
+      if (!media) return;
+      const img = getZoomImg(); // null if video
+      if (e.button !== 0) return;
+
+      // Don't intercept mousedown on video elements — let native controls work
+      if (!img) return;
+
+      e.preventDefault();
+
+      if (zoomLevel <= 1.001) {
+        // Start potential swipe
+        swipeStartX = e.clientX;
+        swipeStartY = e.clientY;
+        isSwiping = true;
+        swipeLocked = false;
+        swipeDragX = 0;
+      } else {
+        // Zoomed photo: pan mode
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        panStartPanX = panX;
+        panStartPanY = panY;
+        cancelAnimationFrame(zoomRaf);
+        zoomRaf = 0;
+        img.classList.add('panning');
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (isSwiping) {
+        const dx = e.clientX - swipeStartX;
+        const dy = e.clientY - swipeStartY;
+        if (!swipeLocked) {
+          // Lock direction after 8px of movement
+          if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+            if (Math.abs(dx) >= Math.abs(dy)) {
+              swipeLocked = true; // horizontal — swipe
+            } else {
+              isSwiping = false; // vertical — cancel swipe
+              return;
+            }
+          } else {
+            return; // not enough movement yet
+          }
+        }
+        swipeDragX = dx;
+        // Clamp: don't allow dragging beyond first/last photo, add rubber band
+        const cw = lbContent.clientWidth;
+        if (swipeDragX > 0 && currentLbIndex === 0) swipeDragX = swipeDragX * 0.2;
+        if (swipeDragX < 0 && currentLbIndex >= items.length - 1) swipeDragX = swipeDragX * 0.2;
+        const basePct = -33.3333;
+        const offsetPct = (swipeDragX / cw) * 33.3333;
+        swipeTrack.style.transition = 'none';
+        swipeTrack.style.transform = `translateX(${basePct + offsetPct}%)`;
+        return;
+      }
+      if (!isPanning) return;
+      const img = getZoomImg();
+      if (!img) return;
+      const { fitW, fitH, cw, ch } = getFitDims(img);
+      const rawX = panStartPanX + (e.clientX - panStartX);
+      const rawY = panStartPanY + (e.clientY - panStartY);
+      const clamped = clampPan(rawX, rawY, fitW, fitH, cw, ch, zoomLevel);
+      panX = clamped.x;
+      panY = clamped.y;
+      targetPanX = panX;
+      targetPanY = panY;
+      renderZoom();
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      if (isSwiping) {
+        finishSwipe(swipeDragX, e.clientX - swipeStartX);
+        isSwiping = false;
+        swipeLocked = false;
+        swipeDragX = 0;
+        return;
+      }
+      if (!isPanning) return;
+      isPanning = false;
+      const img = getZoomImg();
+      if (img) img.classList.remove('panning');
+    });
+
+    function finishSwipe(dragX) {
+      lastSwipeTime = Date.now();
+      const cw = lbContent.clientWidth;
+      const threshold = cw * 0.15; // 15% of width to trigger nav
+      let navigated = false;
+
+      if (dragX < -threshold && currentLbIndex < items.length - 1) {
+        // Swiped left — next
+        navigated = true;
+        wheelSwipeCooldown = Date.now() + 1000; // block momentum immediately
+        swipeTrack.style.transition = 'transform 0.25s ease-out';
+        swipeTrack.style.transform = `translateX(${-66.6666}%)`;
+        setTimeout(() => commitSwipe(1), 250);
+      } else if (dragX > threshold && currentLbIndex > 0) {
+        // Swiped right — prev
+        navigated = true;
+        wheelSwipeCooldown = Date.now() + 1000; // block momentum immediately
+        swipeTrack.style.transition = 'transform 0.25s ease-out';
+        swipeTrack.style.transform = `translateX(0%)`;
+        setTimeout(() => commitSwipe(-1), 250);
+      }
+
+      if (!navigated) {
+        // Snap back to center
+        wheelSwipeCooldown = Date.now() + 400; // block residual momentum
+        swipeTrack.style.transition = 'transform 0.2s ease-out';
+        swipeTrack.style.transform = 'translateX(-33.3333%)';
+        setTimeout(() => {
+          swipeTrack.style.transition = '';
+        }, 200);
+      }
+    }
+
+    // After swipe animation completes, promote the adjacent slide to current
+    // without any visible jump or reload
+    function commitSwipe(direction) {
+      // direction: +1 = swiped left (next), -1 = swiped right (prev)
+      currentLbIndex += direction;
+      const item = items[currentLbIndex];
+      if (!item) return;
+
+      // Pause any playing video before moving slides
+      const oldVideo = slideCurrent.querySelector('video');
+      if (oldVideo) { oldVideo.pause(); oldVideo.onerror = null; oldVideo.removeAttribute('src'); oldVideo.load(); }
+
+      abortFullRes();
+      clearTimeout(wheelSwipeSettleTimer);
+      wheelSwipeAccum = 0;
+      wheelSwipeCooldown = Date.now() + 1200; // block residual momentum after track reset
+      resetZoom();
+
+      // Move the content from the target slide into slideCurrent
+      // Use DOM node moves (not innerHTML) to preserve loaded images
+      if (direction === 1) {
+        // slideNext becomes current
+        slidePrev.replaceChildren(...slideCurrent.childNodes);
+        slideCurrent.replaceChildren(...slideNext.childNodes);
+      } else {
+        // slidePrev becomes current
+        slideNext.replaceChildren(...slideCurrent.childNodes);
+        slideCurrent.replaceChildren(...slidePrev.childNodes);
+      }
+
+      // Reset track position instantly (no transition) — visually seamless
+      // because slideCurrent now has the image that was already visible
+      swipeTrack.style.transition = '';
+      swipeTrack.style.transform = 'translateX(-33.3333%)';
+
+      // Start loading full-res for the new current item (preview is already showing)
+      lbQuality.innerHTML = '';
+      if (item.isVideo) {
+        slideCurrent.innerHTML = '';
+        const { wrapper, video } = createVideoEl(item.id);
+        video.onerror = () => {
+          slideCurrent.innerHTML = '<p style="color:#fff">Error loading video</p>';
+        };
+        slideCurrent.appendChild(wrapper);
+      } else if (!item.isVideo) {
+        const cachedUrl = fullResCache.get(item.id);
+        if (cachedUrl) {
+          // Full-res already cached — swap src
+          const existing = slideCurrent.querySelector('img');
+          if (existing) {
+            existing.onload = null;
+            existing.src = cachedUrl;
+          }
+          showQuality('full');
+          fullResCacheTouch(item.id);
+        } else {
+          // Start full-res load (preview is already in slideCurrent)
+          const existingImg = slideCurrent.querySelector('img');
+          if (existingImg) {
+            existingImg.onload = null;
+            showQuality('loading');
+            loadFullRes(item, existingImg);
+          } else {
+            loadProgressive(item);
+          }
+        }
+      }
+
+      // Update adjacent slides for the next potential swipe
+      preloadAdjacentPreviews();
+
+      // Update info bar
+      const date = item.dateCreated ? new Date(item.dateCreated).toLocaleString() : '';
+      const dims = item.width && item.height ? `${item.width} × ${item.height}` : '';
+      const fname = item.originalFilename || item.filename || '';
+
+      lbInfo.innerHTML = `
+        <div class="filename">${fname}</div>
+        <div class="meta">
+          ${date ? `<span>${date}</span>` : ''}
+          ${dims ? `<span>${dims}</span>` : ''}
+          ${item.latitude && item.longitude ? `<span>${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}</span>` : ''}
+        </div>
+      `;
+    }
+
+    // --- Touch: pinch-to-zoom + pan + swipe nav ---
+    let lastPinchDist = 0;     // previous frame's finger distance (frame-by-frame delta)
+    let lastTouchCenter = null;
+    let touchPanning = false;
+    let touchSwiping = false;
+    let touchSwipeLocked = false;
+    let dragDismissing = false; // drag-down-to-close active
+    let dragDismissY = 0;      // current vertical drag offset
+
+    lbContent.addEventListener('touchstart', (e) => {
+      const media = getMediaEl();
+      if (!media) return;
+      const img = getZoomImg(); // null if video
+
+      if (e.touches.length === 2 && img) {
+        // Pinch-to-zoom: photos only
+        e.preventDefault();
+        touchSwiping = false;
+        cancelAnimationFrame(zoomRaf);
+        zoomRaf = 0;
+        pinchStartDist = getTouchDist(e.touches);
+        lastPinchDist = pinchStartDist;
+        lastTouchCenter = getTouchCenter(e.touches);
+      } else if (e.touches.length === 1) {
+        if (img && zoomLevel > 1.001) {
+          // Panning: photos only when zoomed
+          e.preventDefault();
+          cancelAnimationFrame(zoomRaf);
+          zoomRaf = 0;
+          touchPanning = true;
+          panStartX = e.touches[0].clientX;
+          panStartY = e.touches[0].clientY;
+          panStartPanX = panX;
+          panStartPanY = panY;
+        } else {
+          // Start potential swipe (photos at zoom=1 + all videos)
+          swipeStartX = e.touches[0].clientX;
+          swipeStartY = e.touches[0].clientY;
+          touchSwiping = true;
+          touchSwipeLocked = false;
+          swipeDragX = 0;
+        }
+      }
+    }, { passive: false });
+
+    lbContent.addEventListener('touchmove', (e) => {
+      const media = getMediaEl();
+      if (!media) return;
+      const img = getZoomImg(); // null if video
+
+      if (e.touches.length === 2 && img) {
+        // Pinch-to-zoom: photos only
+        e.preventDefault();
+        const dist = getTouchDist(e.touches);
+        const center = getTouchCenter(e.touches);
+
+        // Frame-by-frame scale: compare to previous frame, not gesture start
+        // Handles finger re-grips naturally, no accumulated drift
+        const scale = lastPinchDist > 0 ? dist / lastPinchDist : 1;
+        const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomLevel * scale));
+
+        const { fitW, fitH, cw, ch } = getFitDims(img);
+        const rect = lbContent.getBoundingClientRect();
+        const mx = center.x - rect.left;
+        const my = center.y - rect.top;
+
+        const panDeltaX = lastTouchCenter ? center.x - lastTouchCenter.x : 0;
+        const panDeltaY = lastTouchCenter ? center.y - lastTouchCenter.y : 0;
+
+        let fromPX = panX, fromPY = panY;
+        if (zoomLevel <= 1.001) {
+          const c = centeredPan(fitW, fitH, cw, ch, 1);
+          fromPX = c.x;
+          fromPY = c.y;
+        }
+        const imgX = (mx - panDeltaX - fromPX) / zoomLevel;
+        const imgY = (my - panDeltaY - fromPY) / zoomLevel;
+        const newPX = mx - imgX * newZoom;
+        const newPY = my - imgY * newZoom;
+        const clamped = clampPan(newPX, newPY, fitW, fitH, cw, ch, newZoom);
+
+        zoomLevel = newZoom;
+        panX = clamped.x;
+        panY = clamped.y;
+        targetZoom = zoomLevel;
+        targetPanX = panX;
+        targetPanY = panY;
+        renderZoom();
+
+        lastPinchDist = dist;
+        lastTouchCenter = center;
+      } else if (e.touches.length === 1 && touchSwiping) {
+        const dx = e.touches[0].clientX - swipeStartX;
+        const dy = e.touches[0].clientY - swipeStartY;
+        if (!touchSwipeLocked && !dragDismissing) {
+          if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+            if (Math.abs(dx) >= Math.abs(dy)) {
+              touchSwipeLocked = true;
+              e.preventDefault();
+            } else {
+              // Vertical drag — enter drag-to-dismiss mode
+              touchSwiping = false;
+              dragDismissing = true;
+              // Hide all UI like when zoomed
+              lbPrev.style.display = 'none';
+              lbNext.style.display = 'none';
+              lbClose.style.display = 'none';
+              lbDownload.style.display = 'none';
+              lbInfo.style.display = 'none';
+              lbQuality.style.display = 'none';
+              e.preventDefault();
+              return;
+            }
+          } else {
+            return;
+          }
+        }
+        e.preventDefault();
+        swipeDragX = dx;
+        // Rubber band at boundaries
+        const cw = lbContent.clientWidth;
+        if (swipeDragX > 0 && currentLbIndex === 0) swipeDragX = swipeDragX * 0.2;
+        if (swipeDragX < 0 && currentLbIndex >= items.length - 1) swipeDragX = swipeDragX * 0.2;
+        const basePct = -33.3333;
+        const offsetPct = (swipeDragX / cw) * 33.3333;
+        swipeTrack.style.transition = 'none';
+        swipeTrack.style.transform = `translateX(${basePct + offsetPct}%)`;
+      } else if (e.touches.length === 1 && dragDismissing) {
+        e.preventDefault();
+        dragDismissY = e.touches[0].clientY - swipeStartY;
+        // Only allow dragging down (positive Y), rubber band upward
+        if (dragDismissY < 0) dragDismissY = dragDismissY * 0.15;
+        const progress = Math.min(Math.abs(dragDismissY) / (window.innerHeight * 0.35), 1);
+        lbContent.style.transition = 'none';
+        lbContent.style.transform = `translateY(${dragDismissY}px)`;
+        lightbox.style.transition = 'none';
+        lightbox.style.background = `rgba(0,0,0,${1 - progress * 0.6})`;
+      } else if (e.touches.length === 1 && touchPanning && img && zoomLevel > 1.001) {
+        e.preventDefault();
+        const { fitW, fitH, cw, ch } = getFitDims(img);
+        const rawX = panStartPanX + (e.touches[0].clientX - panStartX);
+        const rawY = panStartPanY + (e.touches[0].clientY - panStartY);
+        const clamped = clampPan(rawX, rawY, fitW, fitH, cw, ch, zoomLevel);
+        panX = clamped.x;
+        panY = clamped.y;
+        targetPanX = panX;
+        targetPanY = panY;
+        renderZoom();
+      }
+    }, { passive: false });
+
+    lbContent.addEventListener('touchend', (e) => {
+      if (dragDismissing && e.touches.length === 0) {
+        dragDismissing = false;
+        if (dragDismissY > window.innerHeight * 0.2) {
+          // Dismiss — animate lbContent off screen, fade lightbox background
+          lbContent.style.transition = 'transform 0.2s ease-out';
+          lbContent.style.transform = `translateY(${window.innerHeight}px)`;
+          lightbox.style.transition = 'background 0.2s ease-out';
+          lightbox.style.background = 'rgba(0,0,0,0)';
+          setTimeout(() => {
+            closeLightbox();
+            lbContent.style.transition = '';
+            lbContent.style.transform = '';
+            lightbox.style.transition = '';
+            lightbox.style.background = '';
+          }, 200);
+        } else {
+          // Snap back — animate lbContent back to origin, restore background
+          lbContent.style.transition = 'transform 0.25s ease-out';
+          lbContent.style.transform = '';
+          lightbox.style.transition = 'background 0.25s ease-out';
+          lightbox.style.background = '';
+          // Restore UI elements
+          lbPrev.style.display = '';
+          lbNext.style.display = '';
+          lbClose.style.display = '';
+          lbDownload.style.display = '';
+          lbInfo.style.display = '';
+          lbQuality.style.display = '';
+          setTimeout(() => {
+            lbContent.style.transition = '';
+            lightbox.style.transition = '';
+          }, 250);
+        }
+        dragDismissY = 0;
+        return;
+      }
+      if (touchSwiping && e.touches.length === 0) {
+        finishSwipe(swipeDragX);
+        touchSwiping = false;
+        touchSwipeLocked = false;
+        swipeDragX = 0;
+      }
+      if (e.touches.length < 2) {
+        pinchStartDist = 0;
+        lastPinchDist = 0;
+        lastTouchCenter = null;
+        if (zoomLevel < 1) {
+          animateResetZoom();
+        }
+      }
+      if (e.touches.length === 0) {
+        touchPanning = false;
+      }
+    });
+
+    function getTouchDist(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.hypot(dx, dy);
+    }
+
+    function getTouchCenter(touches) {
+      return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2,
+      };
+    }
+
+    function showLightboxItem(index) {
+      const item = items[index];
+      if (!item) return;
+
+      // Abort any in-flight full-res download
+      abortFullRes();
+      // Clear any pending wheel swipe
+      clearTimeout(wheelSwipeSettleTimer);
+      wheelSwipeAccum = 0;
+
+      resetZoom();
+      // Reset swipe track position
+      swipeTrack.style.transition = '';
+      swipeTrack.style.transform = 'translateX(-33.3333%)';
+
+      lbQuality.innerHTML = '';
+
+      if (item.isVideo) {
+        slideCurrent.innerHTML = '';
+        slidePrev.innerHTML = '';
+        slideNext.innerHTML = '';
+        const { wrapper, video } = createVideoEl(item.id);
+        video.onerror = () => {
+          slideCurrent.innerHTML = '<p style="color:#fff">Error loading video</p>';
+        };
+        slideCurrent.appendChild(wrapper);
+      } else {
+        // Check if we already have a cached full-res blob for this item
+        const cachedUrl = fullResCache.get(item.id);
+        if (cachedUrl) {
+          // Serve from cache — instant full quality
+          const img = new Image();
+          img.draggable = false;
+          img.src = cachedUrl;
+          slideCurrent.innerHTML = '';
+          slideCurrent.appendChild(img);
+          showQuality('full');
+          fullResCacheTouch(item.id);
+        } else {
+          // Progressive: preview first, then full-res
+          loadProgressive(item);
+        }
+      }
+
+      // Populate adjacent slides for swipe
+      preloadAdjacentPreviews();
+
+      // Info bar
+      const date = item.dateCreated ? new Date(item.dateCreated).toLocaleString() : '';
+      const dims = item.width && item.height ? `${item.width} × ${item.height}` : '';
+      const camera = '';
+      const fname = item.originalFilename || item.filename || '';
+
+      lbInfo.innerHTML = `
+        <div class="filename">${fname}</div>
+        <div class="meta">
+          ${date ? `<span>${date}</span>` : ''}
+          ${dims ? `<span>${dims}</span>` : ''}
+          ${camera ? `<span>${camera}</span>` : ''}
+          ${item.latitude && item.longitude ? `<span>${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}</span>` : ''}
+        </div>
+      `;
+    }
+
+    document.getElementById('lbClose').addEventListener('click', closeLightbox);
+    document.getElementById('lbDownload').addEventListener('click', () => {
+      if (currentLbIndex < 0) return;
+      const item = items[currentLbIndex];
+      if (!item) return;
+      const a = document.createElement('a');
+      a.href = `/api/download/${item.id}`;
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+    document.getElementById('lbPrev').addEventListener('click', () => {
+      if (currentLbIndex > 0) {
+        currentLbIndex--;
+        showLightboxItem(currentLbIndex);
+      }
+    });
+    document.getElementById('lbNext').addEventListener('click', () => {
+      if (currentLbIndex < items.length - 1) {
+        currentLbIndex++;
+        showLightboxItem(currentLbIndex);
+      }
+    });
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (!lightbox.classList.contains('active')) return;
+      if (e.key === 'Escape') {
+        closeLightbox();
+      }
+      // Only navigate when not zoomed
+      if (zoomLevel <= 1.001 && targetZoom <= 1.001) {
+        if (e.key === 'ArrowLeft' && currentLbIndex > 0) {
+          currentLbIndex--;
+          showLightboxItem(currentLbIndex);
+        }
+        if (e.key === 'ArrowRight' && currentLbIndex < items.length - 1) {
+          currentLbIndex++;
+          showLightboxItem(currentLbIndex);
+        }
+      }
+      // Zoom with +/- keys
+      if (e.key === '=' || e.key === '+') {
+        zoomCenter(targetZoom * 1.5);
+      }
+      if (e.key === '-' || e.key === '_') {
+        zoomCenter(targetZoom / 1.5);
+      }
+      if (e.key === '0') {
+        animateResetZoom();
+      }
+    });
+
+    // Click outside photo to close (but not after a swipe)
+    let lastSwipeTime = 0;
+    lightbox.addEventListener('click', (e) => {
+      // Don't close if this click came right after a swipe
+      if (Date.now() - lastSwipeTime < 300) return;
+      const tag = e.target.tagName;
+      // Don't close if clicked on the actual photo/video, a button, or inside the content area
+      if (tag === 'IMG' || tag === 'VIDEO' || tag === 'BUTTON' || e.target.closest('button')) return;
+      if (e.target.closest('.lightbox-content')) return;
+      closeLightbox();
+    });
+
+    // --- Helpers ---
+    function formatDateGroup(date) {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const diff = Math.floor((today - d) / 86400000);
+
+      if (diff === 0) return 'Today';
+      if (diff === 1) return 'Yesterday';
+      if (diff < 7) return date.toLocaleDateString('en-US', { weekday: 'long' });
+
+      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    function formatDuration(seconds) {
+      if (!seconds) return '';
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+  </script>
+</body>
+</html>
