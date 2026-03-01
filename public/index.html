@@ -278,6 +278,38 @@
 
     .lightbox-close:hover { background: rgba(255,255,255,0.1); }
 
+    .lightbox-rotate {
+      position: absolute;
+      top: 16px;
+      right: 108px;
+      background: none;
+      border: none;
+      color: #fff;
+      padding: 0;
+      cursor: pointer;
+      z-index: 210;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: background 0.15s;
+    }
+
+    .lightbox-rotate:hover { background: rgba(255,255,255,0.1); }
+
+    .lightbox-rotate svg {
+      display: block;
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     .lightbox-download {
       position: absolute;
       top: 16px;
@@ -773,6 +805,9 @@
 
   <div class="lightbox" id="lightbox">
     <button class="lightbox-close" id="lbClose"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    <button class="lightbox-rotate" id="lbRotate" title="Rotate left">
+      <svg viewBox="0 0 24 24"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+    </button>
     <button class="lightbox-download" id="lbDownload" title="Download original">
       <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
     </button>
@@ -815,6 +850,7 @@
     const lbNext = document.getElementById('lbNext');
     const lbClose = document.getElementById('lbClose');
     const lbDownload = document.getElementById('lbDownload');
+    const lbRotate = document.getElementById('lbRotate');
     const sizeSlider = document.getElementById('sizeSlider');
     const searchPanel = document.getElementById('searchPanel');
     const searchToggle = document.getElementById('searchToggle');
@@ -873,7 +909,7 @@
         gallery.style.marginTop = '56px';
       }
     }
-    window.addEventListener('resize', updateGalleryMargin);
+    window.addEventListener('resize', () => { updateGalleryMargin(); invalidateDimsCache(); });
 
     searchToggle.addEventListener('click', () => {
       const isOpen = searchPanel.classList.toggle('open');
@@ -1032,7 +1068,12 @@
       clusterCollageItems = photoDataList;
       collageRendered = 0;
 
-      clusterCollageTitle.textContent = `${photoDataList.length} photo${photoDataList.length !== 1 ? 's' : ''}`;
+      const photoCount = photoDataList.filter(p => !p.isVideo).length;
+      const videoCount = photoDataList.filter(p => p.isVideo).length;
+      const parts = [];
+      if (photoCount > 0) parts.push(`${photoCount} photo${photoCount !== 1 ? 's' : ''}`);
+      if (videoCount > 0) parts.push(`${videoCount} video${videoCount !== 1 ? 's' : ''}`);
+      clusterCollageTitle.textContent = parts.join(', ') || '0 items';
       clusterCollageGrid.innerHTML = '';
       clusterCollage.scrollTop = 0;
       clusterCollage.classList.add('active');
@@ -1256,27 +1297,51 @@
     let panStartPanX = 0, panStartPanY = 0;
     const MIN_ZOOM = 1;
     const MAX_ZOOM = 8;
+    let rotation = 0; // 0, -90, -180, -270
+    let controlsHidden = false; // immersive mode (single tap toggle)
+
+    // Cached layout dimensions (avoid forced reflow every frame)
+    let cachedCW = 0, cachedCH = 0, cachedFitW = 0, cachedFitH = 0;
+    let dimsCacheValid = false;
+    let lastControlsVisible = true; // track to skip redundant setControlsVisible calls
+
+    // Swap system state (preview ↔ full-res during zoom/pan interactions)
+    let fullResSrc = null;
+    let previewSrc = null;
+    let interactionTimer = null;
 
     function openLightbox(index) {
       currentLbIndex = index;
       lightbox.classList.add('active');
       document.body.style.overflow = 'hidden';
+      // Reset state
+      rotation = 0;
+      controlsHidden = false;
       // Restore UI in case it was hidden by drag-dismiss or zoom
-      lbPrev.style.display = '';
-      lbNext.style.display = '';
-      lbClose.style.display = '';
-      lbDownload.style.display = '';
-      lbInfo.style.display = '';
-      lbQuality.style.display = '';
+      setControlsVisible(true);
       resetZoom();
       showLightboxItem(index);
+    }
+
+    function setControlsVisible(visible) {
+      const d = visible ? '' : 'none';
+      lbPrev.style.display = d;
+      lbNext.style.display = d;
+      lbClose.style.display = d;
+      lbDownload.style.display = d;
+      lbRotate.style.display = d;
+      lbInfo.style.display = d;
+      lbQuality.style.display = d;
     }
 
     function closeLightbox() {
       // Pause any playing video
       const video = slideCurrent.querySelector('video');
       if (video) { video.pause(); video.onerror = null; video.removeAttribute('src'); video.load(); }
+      loadGeneration++;
       abortFullRes();
+      clearTimeout(fullResDelayTimer);
+      fullResDelayTimer = null;
       lightbox.classList.remove('active');
       document.body.style.overflow = '';
       slidePrev.innerHTML = '';
@@ -1289,11 +1354,19 @@
       lbContent.style.width = '';
       lbContent.style.height = '';
       currentLbIndex = -1;
+      rotation = 0;
+      controlsHidden = false;
+      fullResSrc = null;
+      previewSrc = null;
+      clearTimeout(interactionTimer);
+      wasZoomedState = false; // ensure clean state for next lightbox open
       resetZoom();
     }
 
     // --- Progressive loading system ---
     let fullResAbort = null; // current AbortController
+    let loadGeneration = 0;  // increments on every navigation; stale callbacks bail out
+    let fullResDelayTimer = null; // delayed full-res load after fast navigation
 
     // LRU cache: id -> blob URL (max 3 entries)
     const FULL_RES_CACHE_MAX = 3;
@@ -1395,130 +1468,158 @@
     }
 
     function loadProgressive(item) {
-      // Step 1: Load preview (derivative) immediately
+      const gen = loadGeneration; // capture current generation
+      // Step 0: Show thumbnail from gallery grid as instant placeholder (no black screen)
+      // Try to clone the already-decoded gallery thumbnail for instant display
+      const galleryThumb = document.querySelector(`.thumb[data-index="${currentLbIndex}"] img`);
+      let thumbImg;
+      if (galleryThumb && galleryThumb.complete && galleryThumb.naturalWidth > 0) {
+        thumbImg = galleryThumb.cloneNode(true);
+        thumbImg.draggable = false;
+        thumbImg.removeAttribute('loading'); // remove lazy loading attr
+        thumbImg.style.cssText = ''; // clear any gallery inline styles
+      } else {
+        // Fallback: create new image (may flash black briefly while loading from cache)
+        thumbImg = new Image();
+        thumbImg.draggable = false;
+        thumbImg.src = `/api/thumb/${item.id}?size=300`;
+      }
+      slideCurrent.innerHTML = '';
+      slideCurrent.appendChild(thumbImg);
+      showQuality('preview');
+
+      // Step 1: Load higher-quality preview (derivative)
       const previewImg = new Image();
       previewImg.draggable = false;
       previewImg.src = `/api/preview/${item.id}`;
-      showQuality('preview');
-
-      // Show spinner while preview loads
-      slideCurrent.innerHTML = '<div class="lightbox-loading"><div class="spinner"></div></div>';
 
       previewImg.onload = () => {
-        // Only place if this is still the current item
+        // Bail out if user navigated away (stale generation)
+        if (gen !== loadGeneration) { previewImg.onload = null; previewImg.onerror = null; return; }
         if (items[currentLbIndex]?.id !== item.id) return;
         // Clear handler so it doesn't re-fire when full-res swaps the src
         previewImg.onload = null;
-        slideCurrent.innerHTML = '';
-        slideCurrent.appendChild(previewImg);
-        showQuality('loading');
-        // Step 2: Start loading full-res in background
-        loadFullRes(item, previewImg);
+        // Pre-decode the preview, then swap into DOM for a seamless transition
+        const doSwap = () => {
+          if (gen !== loadGeneration) return;
+          if (items[currentLbIndex]?.id !== item.id) return;
+          const existing = slideCurrent.querySelector('img');
+          if (existing) {
+            existing.src = previewImg.src;
+          } else {
+            slideCurrent.innerHTML = '';
+            slideCurrent.appendChild(previewImg);
+          }
+          invalidateDimsCache();
+          renderZoom();
+          // Delay full-res load — user might still be navigating fast
+          clearTimeout(fullResDelayTimer);
+          showQuality('preview');
+          const delayedItem = item;
+          fullResDelayTimer = setTimeout(() => {
+            fullResDelayTimer = null;
+            if (gen !== loadGeneration || items[currentLbIndex]?.id !== delayedItem.id) return;
+            showQuality('loading');
+            loadFullRes(delayedItem);
+          }, 300);
+        };
+        // decode() ensures the bitmap is ready before we swap src
+        if (previewImg.decode) {
+          previewImg.decode().then(doSwap).catch(doSwap);
+        } else {
+          doSwap();
+        }
       };
 
       previewImg.onerror = () => {
+        if (gen !== loadGeneration) { previewImg.onerror = null; return; }
         if (items[currentLbIndex]?.id !== item.id) return;
         previewImg.onerror = null;
-        // Preview failed — try full-res directly
-        showQuality('loading');
-        loadFullRes(item, null);
+        // Preview failed — delay full-res load in case user is still navigating
+        clearTimeout(fullResDelayTimer);
+        showQuality('preview');
+        const delayedItem = item;
+        fullResDelayTimer = setTimeout(() => {
+          fullResDelayTimer = null;
+          if (gen !== loadGeneration || items[currentLbIndex]?.id !== delayedItem.id) return;
+          showQuality('loading');
+          loadFullRes(delayedItem);
+        }, 300);
       };
     }
 
-    function loadFullRes(item, previewImg) {
+    function loadFullRes(item) {
+      const gen = loadGeneration;
       const controller = new AbortController();
       fullResAbort = controller;
 
       fetch(`/api/photo/${item.id}`, { signal: controller.signal })
         .then(response => {
           if (!response.ok) throw new Error('HTTP ' + response.status);
-
-          // If server says this is only derivative quality, don't bother swapping
           const quality = response.headers.get('X-Quality');
           const isDerivativeOnly = quality === 'derivative';
-
-          const contentLength = response.headers.get('Content-Length');
-          const total = contentLength ? parseInt(contentLength, 10) : 0;
-          let loaded = 0;
-
-          const reader = response.body.getReader();
-          const chunks = [];
-
-          function pump() {
-            return reader.read().then(({ done, value }) => {
-              if (done) return;
-              chunks.push(value);
-              loaded += value.length;
-              if (total > 0) {
-                setProgress((loaded / total) * 100);
-              } else {
-                // Unknown size: pulse between 10-90%
-                setProgress(Math.min(90, 10 + (loaded / 1000000) * 20));
-              }
-              return pump();
-            });
-          }
-
-          return pump().then(() => {
-            const blob = new Blob(chunks, {
-              type: response.headers.get('Content-Type') || 'image/jpeg'
-            });
-            return { blob, isDerivativeOnly };
-          });
+          // Let the browser consume the body off the main thread
+          return response.blob().then(blob => ({ blob, isDerivativeOnly }));
         })
         .then(({ blob, isDerivativeOnly }) => {
-          // Check if still the current item (user may have navigated)
-          if (items[currentLbIndex]?.id !== item.id) return;
+          if (gen !== loadGeneration || items[currentLbIndex]?.id !== item.id) return;
 
           const blobUrl = URL.createObjectURL(blob);
           fullResCacheSet(item.id, blobUrl);
 
-          // Decode the full-res image off-screen before swapping
-          const fullImg = new Image();
-          fullImg.draggable = false;
-          fullImg.src = blobUrl;
-          fullImg.onload = () => {
-            if (items[currentLbIndex]?.id !== item.id) return;
-            // Preserve zoom state if user zoomed into the preview
-            const wasZoomed = zoomLevel > 1;
-            // Swap src on existing img to avoid black flash
-            // Browser keeps old pixels until new src paints
+          // Decode off the main thread via createImageBitmap
+          const decodePromise = typeof createImageBitmap === 'function'
+            ? createImageBitmap(blob)
+            : new Promise((resolve, reject) => {
+                const img = new Image();
+                img.src = blobUrl;
+                img.onload = () => (img.decode ? img.decode().then(() => resolve(null)).catch(() => resolve(null)) : resolve(null));
+                img.onerror = reject;
+              });
+
+          return decodePromise.then(() => {
+            if (gen !== loadGeneration || items[currentLbIndex]?.id !== item.id) return;
+            fullResSrc = blobUrl;
+            if (!previewSrc) {
+              const existing = slideCurrent.querySelector('img');
+              if (existing) previewSrc = existing.src;
+            }
             const existing = slideCurrent.querySelector('img');
             if (existing) {
               existing.src = blobUrl;
             } else {
-              // No existing img (e.g. spinner only) — add new
+              const img = new Image();
+              img.draggable = false;
+              img.src = blobUrl;
               slideCurrent.innerHTML = '';
-              slideCurrent.appendChild(fullImg);
+              slideCurrent.appendChild(img);
             }
-            if (wasZoomed) renderZoom();
+            renderZoom();
             showQuality(isDerivativeOnly ? 'best' : 'full');
-          };
-          fullImg.onerror = () => {
-            // Browser can't decode this format (e.g. HEIC on Chrome/Linux)
-            // Re-fetch as JPEG conversion
-            console.warn('Browser cannot decode full-res image for', item.id, '— retrying as JPEG');
+          }).catch(() => {
+            // Browser can't decode (e.g. HEIC on Chrome) — retry as JPEG
+            console.warn('Cannot decode full-res for', item.id, '— retrying as JPEG');
             URL.revokeObjectURL(blobUrl);
             fullResCache.delete(item.id);
-            if (items[currentLbIndex]?.id === item.id) {
+            if (gen === loadGeneration && items[currentLbIndex]?.id === item.id) {
               loadFullResJpeg(item);
             }
-          };
-          fullResAbort = null;
+          });
         })
         .catch(err => {
-          if (err.name === 'AbortError') return; // expected on navigate/close
+          if (err.name === 'AbortError') return;
           console.warn('Full-res load failed:', err.message);
-          // Stay on preview — it's good enough
-          if (items[currentLbIndex]?.id === item.id) {
+          if (gen === loadGeneration && items[currentLbIndex]?.id === item.id) {
             showQuality('');
           }
           fullResAbort = null;
-        });
+        })
+        .finally(() => { fullResAbort = null; });
     }
 
     // Fallback: re-fetch as server-converted JPEG (for browsers that can't decode HEIC)
     function loadFullResJpeg(item) {
+      const gen = loadGeneration;
       showQuality('loading');
       const controller = new AbortController();
       fullResAbort = controller;
@@ -1526,61 +1627,53 @@
       fetch(`/api/photo/${item.id}?format=jpeg`, { signal: controller.signal })
         .then(response => {
           if (!response.ok) throw new Error('HTTP ' + response.status);
-          const contentLength = response.headers.get('Content-Length');
-          const total = contentLength ? parseInt(contentLength, 10) : 0;
-          let loaded = 0;
-          const reader = response.body.getReader();
-          const chunks = [];
-
-          function pump() {
-            return reader.read().then(({ done, value }) => {
-              if (done) return;
-              chunks.push(value);
-              loaded += value.length;
-              if (total > 0) setProgress((loaded / total) * 100);
-              else setProgress(Math.min(90, 10 + (loaded / 1000000) * 20));
-              return pump();
-            });
-          }
-
-          return pump().then(() => new Blob(chunks, {
-            type: response.headers.get('Content-Type') || 'image/jpeg'
-          }));
+          return response.blob();
         })
         .then(blob => {
-          if (items[currentLbIndex]?.id !== item.id) return;
+          if (gen !== loadGeneration || items[currentLbIndex]?.id !== item.id) return;
           const blobUrl = URL.createObjectURL(blob);
           fullResCacheSet(item.id, blobUrl);
-          const img = new Image();
-          img.draggable = false;
-          img.src = blobUrl;
-          img.onload = () => {
-            if (items[currentLbIndex]?.id !== item.id) return;
-            const wasZoomed = zoomLevel > 1;
+
+          const decodePromise = typeof createImageBitmap === 'function'
+            ? createImageBitmap(blob)
+            : new Promise((resolve, reject) => {
+                const img = new Image();
+                img.src = blobUrl;
+                img.onload = () => (img.decode ? img.decode().then(() => resolve(null)).catch(() => resolve(null)) : resolve(null));
+                img.onerror = reject;
+              });
+
+          return decodePromise.then(() => {
+            if (gen !== loadGeneration || items[currentLbIndex]?.id !== item.id) return;
+            fullResSrc = blobUrl;
+            if (!previewSrc) {
+              const ex = slideCurrent.querySelector('img');
+              if (ex) previewSrc = ex.src;
+            }
             const existing = slideCurrent.querySelector('img');
             if (existing) {
               existing.src = blobUrl;
             } else {
+              const img = new Image();
+              img.draggable = false;
+              img.src = blobUrl;
               slideCurrent.innerHTML = '';
               slideCurrent.appendChild(img);
             }
-            if (wasZoomed) renderZoom();
+            renderZoom();
             showQuality('full');
-          };
-          img.onerror = () => {
-            // Even JPEG conversion failed — stay on preview
+          }).catch(() => {
             URL.revokeObjectURL(blobUrl);
             fullResCache.delete(item.id);
-            if (items[currentLbIndex]?.id === item.id) showQuality('best');
-          };
-          fullResAbort = null;
+            if (gen === loadGeneration && items[currentLbIndex]?.id === item.id) showQuality('best');
+          });
         })
         .catch(err => {
           if (err.name === 'AbortError') return;
           console.warn('JPEG fallback failed:', err.message);
-          if (items[currentLbIndex]?.id === item.id) showQuality('best');
-          fullResAbort = null;
-        });
+          if (gen === loadGeneration && items[currentLbIndex]?.id === item.id) showQuality('best');
+        })
+        .finally(() => { fullResAbort = null; });
     }
 
     function resetZoom() {
@@ -1592,7 +1685,44 @@
       targetPanY = 0;
       cancelAnimationFrame(zoomRaf);
       zoomRaf = 0;
+      dimsCacheValid = false;
+      lastControlsVisible = true;
       renderZoom();
+    }
+
+    // --- Rotation ---
+    function getRotationTransform() {
+      return rotation !== 0 ? ` rotate(${rotation}deg)` : '';
+    }
+
+    function rotateLeft() {
+      rotation = (rotation - 90) % 360;
+      invalidateDimsCache(); // rotation changes effective dimensions
+      if (zoomLevel > 1.001) {
+        animateResetZoom();
+      } else {
+        renderZoom();
+      }
+    }
+
+    // --- Zoom performance: swap to preview during interaction ---
+    function swapToPreview() {
+      if (!previewSrc || !fullResSrc) return;
+      const img = getZoomImg();
+      if (!img || img.src === previewSrc) return;
+      img.src = previewSrc;
+    }
+
+    function swapToFullRes() {
+      if (!fullResSrc) return;
+      const img = getZoomImg();
+      if (!img || img.src === fullResSrc) return;
+      img.src = fullResSrc;
+    }
+
+    function scheduleFullResSwap() {
+      clearTimeout(interactionTimer);
+      interactionTimer = setTimeout(swapToFullRes, 400);
     }
 
     function getZoomImg() {
@@ -1627,14 +1757,23 @@
     // --- Zoom geometry helpers ---
     // Returns the fitted image dimensions at zoom=1 (image scaled to fit container)
     function getFitDims(img) {
+      if (dimsCacheValid) return { fitW: cachedFitW, fitH: cachedFitH, cw: cachedCW, ch: cachedCH };
       const cw = lbContent.clientWidth;
       const ch = lbContent.clientHeight;
-      const nw = img.naturalWidth || img.width;
-      const nh = img.naturalHeight || img.height;
+      let nw = img.naturalWidth || img.width;
+      let nh = img.naturalHeight || img.height;
       if (!nw || !nh) return { fitW: cw, fitH: ch, cw, ch };
+      // When rotated 90° or 270°, the visual dimensions are swapped
+      const isRotated90 = Math.abs(rotation % 180) !== 0;
+      if (isRotated90) { const tmp = nw; nw = nh; nh = tmp; }
       const s = Math.min(cw / nw, ch / nh);
-      return { fitW: nw * s, fitH: nh * s, cw, ch };
+      cachedCW = cw; cachedCH = ch;
+      cachedFitW = nw * s; cachedFitH = nh * s;
+      dimsCacheValid = true;
+      return { fitW: cachedFitW, fitH: cachedFitH, cw: cachedCW, ch: cachedCH };
     }
+
+    function invalidateDimsCache() { dimsCacheValid = false; }
 
     // Compute centered pan for a given zoom and image dims
     function centeredPan(fitW, fitH, cw, ch, z) {
@@ -1662,61 +1801,130 @@
     }
 
     // --- Render: apply current zoomLevel + panX/panY to the DOM ---
+    let wasZoomedState = false; // track zoom state transitions to avoid redundant DOM writes
+
     function renderZoom() {
       const img = getZoomImg();
       if (!img) return;
 
       const isZoomed = zoomLevel > 1.001;
 
-      // Hide/show all UI elements based on zoom
-      lbPrev.style.display = isZoomed ? 'none' : '';
-      lbNext.style.display = isZoomed ? 'none' : '';
-      lbClose.style.display = isZoomed ? 'none' : '';
-      lbDownload.style.display = isZoomed ? 'none' : '';
-      lbInfo.style.display = isZoomed ? 'none' : '';
-      lbQuality.style.display = isZoomed ? 'none' : '';
-
-      // Expand lightbox-content to fullscreen when zoomed, restore when not
-      if (isZoomed) {
-        lbContent.style.width = '100vw';
-        lbContent.style.height = '100vh';
-      } else {
-        lbContent.style.width = '';
-        lbContent.style.height = '';
+      // Only update controls visibility when it actually changes
+      const shouldShow = !(isZoomed || controlsHidden);
+      if (shouldShow !== lastControlsVisible) {
+        lastControlsVisible = shouldShow;
+        setControlsVisible(shouldShow);
       }
 
-      // Get fit dimensions AFTER container resize so cw/ch reflect actual size
+      // Only change container size on zoom state transitions
+      if (isZoomed !== wasZoomedState || (!isZoomed && !controlsHidden)) {
+        if (isZoomed || controlsHidden) {
+          lbContent.style.width = '100vw';
+          lbContent.style.height = '100vh';
+        } else {
+          lbContent.style.width = '';
+          lbContent.style.height = '';
+        }
+        // Container size changed, invalidate cached dims
+        if (isZoomed !== wasZoomedState) {
+          invalidateDimsCache();
+        }
+      }
+
       const { fitW, fitH, cw, ch } = getFitDims(img);
 
       if (!isZoomed) {
         zoomLevel = 1;
-        img.style.width = '100%';
-        img.style.height = '100%';
-        img.style.maxWidth = '';
-        img.style.maxHeight = '';
-        img.style.transform = '';
-        img.style.transformOrigin = '0 0';
-        img.style.position = '';
-        img.style.top = '';
-        img.style.left = '';
-        img.classList.remove('zoomed');
         panX = 0;
         panY = 0;
+        if (wasZoomedState) {
+          img.classList.remove('zoomed');
+          wasZoomedState = false;
+        }
+        const isRotated90 = Math.abs(rotation % 180) !== 0;
+        if (isRotated90) {
+          // object-fit: contain doesn't account for CSS rotation — size explicitly
+          // Element dims are swapped: elW = fitH, elH = fitW (so after rotation, visual = fitW × fitH)
+          const elW = fitH, elH = fitW;
+          img.style.width = elW + 'px';
+          img.style.height = elH + 'px';
+          img.style.maxWidth = '';
+          img.style.maxHeight = '';
+          img.style.position = 'absolute';
+          img.style.top = '0';
+          img.style.left = '0';
+          img.style.transformOrigin = 'center center';
+          // centeredPan gives visual-space position for centering fitW×fitH in cw×ch
+          const cp = centeredPan(fitW, fitH, cw, ch, 1);
+          // Convert visual pan to element translate: tx = panX + (elH - elW)/2
+          const tx = cp.x + (elH - elW) / 2;
+          const ty = cp.y + (elW - elH) / 2;
+          img.style.transform = `translate(${tx}px, ${ty}px) rotate(${rotation}deg)`;
+        } else {
+          // Normal (0° or 180°): CSS object-fit handles sizing
+          img.style.width = '100%';
+          img.style.height = '100%';
+          img.style.maxWidth = '';
+          img.style.maxHeight = '';
+          img.style.position = '';
+          img.style.top = '';
+          img.style.left = '';
+          const rot = getRotationTransform();
+          img.style.transform = rot || '';
+          img.style.transformOrigin = rot ? 'center center' : '0 0';
+        }
       } else {
-        const sw = fitW * zoomLevel;
-        const sh = fitH * zoomLevel;
         const clamped = clampPan(panX, panY, fitW, fitH, cw, ch, zoomLevel);
         panX = clamped.x;
         panY = clamped.y;
 
-        img.style.maxWidth = '';
-        img.style.maxHeight = '';
-        img.style.width = sw + 'px';
-        img.style.height = sh + 'px';
-        img.style.transformOrigin = '0 0';
-        img.style.transform = `translate(${panX}px, ${panY}px)`;
-        img.classList.add('zoomed');
+        if (!wasZoomedState) {
+          img.style.maxWidth = '';
+          img.style.maxHeight = '';
+          img.style.position = 'absolute';
+          img.style.top = '0';
+          img.style.left = '0';
+          img.classList.add('zoomed');
+          wasZoomedState = true;
+        }
+        // fitW/fitH are visual (rotated) dimensions from getFitDims
+        // Element dimensions are swapped when rotated 90°/270°
+        const isRotated90 = Math.abs(rotation % 180) !== 0;
+        const elW = isRotated90 ? fitH * zoomLevel : fitW * zoomLevel;
+        const elH = isRotated90 ? fitW * zoomLevel : fitH * zoomLevel;
+        img.style.width = elW + 'px';
+        img.style.height = elH + 'px';
+        img.style.transformOrigin = 'center center';
+        // Convert visual-space panX/panY to element translate
+        // With transform-origin: center center, visual left = tx + (elW - visW)/2
+        // For 90°: visW = elH, visH = elW → tx = panX + (elH - elW)/2, ty = panY + (elW - elH)/2
+        // For 0°/180°: visW = elW, visH = elH → tx = panX, ty = panY
+        let tx = panX, ty = panY;
+        if (isRotated90) {
+          tx = panX + (elH - elW) / 2;
+          ty = panY + (elW - elH) / 2;
+        }
+        img.style.transform = `translate(${tx}px, ${ty}px) rotate(${rotation}deg)`;
       }
+    }
+
+    // Fast path: only update transform during panning (no layout changes)
+    function renderPan() {
+      const img = getZoomImg();
+      if (!img || zoomLevel <= 1.001) return;
+      const { fitW, fitH, cw, ch } = getFitDims(img);
+      const clamped = clampPan(panX, panY, fitW, fitH, cw, ch, zoomLevel);
+      panX = clamped.x;
+      panY = clamped.y;
+      // Convert visual-space panX/panY to element translate (same logic as renderZoom zoomed branch)
+      const isRotated90 = Math.abs(rotation % 180) !== 0;
+      let tx = panX, ty = panY;
+      if (isRotated90) {
+        const elW = fitH * zoomLevel, elH = fitW * zoomLevel;
+        tx = panX + (elH - elW) / 2;
+        ty = panY + (elW - elH) / 2;
+      }
+      img.style.transform = `translate(${tx}px, ${ty}px) rotate(${rotation}deg)`;
     }
 
     // --- Smooth animated zoom ---
@@ -1757,6 +1965,10 @@
     function zoomAt(clientX, clientY, newZoom) {
       const img = getZoomImg();
       if (!img) return;
+
+      // Swap to preview for performance during zoom
+      swapToPreview();
+      scheduleFullResSwap();
 
       const { fitW, fitH, cw, ch } = getFitDims(img);
       newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, newZoom));
@@ -1809,6 +2021,8 @@
       targetPanX = 0;
       targetPanY = 0;
       startZoomAnimation();
+      // Swap back to full-res after animation settles
+      scheduleFullResSwap();
     }
 
     // --- Mouse wheel zoom ---
@@ -1897,6 +2111,23 @@
     let lastTapX = 0;
     let lastTapY = 0;
     let touchStartTime = 0;
+    let singleTapTimer = 0;
+
+    function toggleImmersive() {
+      controlsHidden = !controlsHidden;
+      invalidateDimsCache();
+      if (controlsHidden) {
+        setControlsVisible(false);
+        lbContent.style.width = '100vw';
+        lbContent.style.height = '100vh';
+      } else {
+        if (zoomLevel <= 1.001) {
+          setControlsVisible(true);
+          lbContent.style.width = '';
+          lbContent.style.height = '';
+        }
+      }
+    }
 
     lbContent.addEventListener('touchstart', (e) => {
       if (e.touches.length === 1) touchStartTime = Date.now();
@@ -1909,13 +2140,16 @@
       const elapsed = Date.now() - touchStartTime;
       const movedX = Math.abs(touch.clientX - swipeStartX);
       const movedY = Math.abs(touch.clientY - swipeStartY);
-      if (elapsed > 250 || movedX > 15 || movedY > 15) {
+      const isTap = elapsed < 250 && movedX < 15 && movedY < 15;
+
+      if (!isTap) {
         lastTapTime = 0;
         return;
       }
 
-      // Single tap on video: no-op (use native controls)
+      // Video: single tap to toggle controls, no double-tap zoom
       if (isCurrentVideo()) {
+        // Don't interfere with native video controls
         lastTapTime = 0;
         return;
       }
@@ -1924,19 +2158,28 @@
       const dx = touch.clientX - lastTapX;
       const dy = touch.clientY - lastTapY;
       if (now - lastTapTime < 350 && Math.abs(dx) < 30 && Math.abs(dy) < 30) {
+        // Double tap — toggle zoom
         e.preventDefault();
+        clearTimeout(singleTapTimer); // cancel pending single-tap action
         const img = getZoomImg();
         if (!img) return;
-        if (targetZoom > 1.05) {
+        if (zoomLevel > 1.05 || targetZoom > 1.05) {
           animateResetZoom();
         } else {
           zoomAt(touch.clientX, touch.clientY, 3);
         }
         lastTapTime = 0;
       } else {
+        // Potential single tap — wait to see if it becomes a double tap
         lastTapTime = now;
         lastTapX = touch.clientX;
         lastTapY = touch.clientY;
+        // Schedule single-tap action (toggle controls/immersive)
+        clearTimeout(singleTapTimer);
+        singleTapTimer = setTimeout(() => {
+          if (!lightbox.classList.contains('active')) return;
+          toggleImmersive();
+        }, 350);
       }
     });
 
@@ -1946,7 +2189,7 @@
       const img = getZoomImg();
       if (!img) return;
       e.preventDefault();
-      if (targetZoom > 1.05) {
+      if (zoomLevel > 1.05 || targetZoom > 1.05) {
         animateResetZoom();
       } else {
         zoomAt(e.clientX, e.clientY, 3);
@@ -1988,6 +2231,9 @@
         cancelAnimationFrame(zoomRaf);
         zoomRaf = 0;
         img.classList.add('panning');
+        // Swap to preview once at pan start for performance
+        swapToPreview();
+        clearTimeout(interactionTimer);
       }
     });
 
@@ -2030,7 +2276,7 @@
       panY = clamped.y;
       targetPanX = panX;
       targetPanY = panY;
-      renderZoom();
+      renderPan();
     });
 
     window.addEventListener('mouseup', (e) => {
@@ -2045,6 +2291,8 @@
       isPanning = false;
       const img = getZoomImg();
       if (img) img.classList.remove('panning');
+      // Swap back to full-res after pan ends
+      scheduleFullResSwap();
     });
 
     function finishSwipe(dragX) {
@@ -2088,15 +2336,25 @@
       const item = items[currentLbIndex];
       if (!item) return;
 
+      // Invalidate all in-flight loads from previous photo
+      loadGeneration++;
+
       // Pause any playing video before moving slides
       const oldVideo = slideCurrent.querySelector('video');
       if (oldVideo) { oldVideo.pause(); oldVideo.onerror = null; oldVideo.removeAttribute('src'); oldVideo.load(); }
 
       abortFullRes();
+      clearTimeout(fullResDelayTimer);
+      fullResDelayTimer = null;
       clearTimeout(wheelSwipeSettleTimer);
       wheelSwipeAccum = 0;
       wheelSwipeCooldown = Date.now() + 1200; // block residual momentum after track reset
+      rotation = 0;
+      fullResSrc = null;
+      previewSrc = null;
+      clearTimeout(interactionTimer);
       resetZoom();
+      wasZoomedState = false; // ensure clean state after reset (safety net)
 
       // Move the content from the target slide into slideCurrent
       // Use DOM node moves (not innerHTML) to preserve loaded images
@@ -2117,6 +2375,7 @@
 
       // Start loading full-res for the new current item (preview is already showing)
       lbQuality.innerHTML = '';
+      clearTimeout(fullResDelayTimer);
       if (item.isVideo) {
         slideCurrent.innerHTML = '';
         const { wrapper, video } = createVideoEl(item.id);
@@ -2127,21 +2386,36 @@
       } else if (!item.isVideo) {
         const cachedUrl = fullResCache.get(item.id);
         if (cachedUrl) {
-          // Full-res already cached — swap src
+          // Full-res already cached — swap src or create new img
           const existing = slideCurrent.querySelector('img');
           if (existing) {
             existing.onload = null;
             existing.src = cachedUrl;
+          } else {
+            // Adjacent slide was empty (video/boundary) — create new element
+            const img = new Image();
+            img.draggable = false;
+            img.src = cachedUrl;
+            slideCurrent.innerHTML = '';
+            slideCurrent.appendChild(img);
           }
+          fullResSrc = cachedUrl;
           showQuality('full');
           fullResCacheTouch(item.id);
         } else {
-          // Start full-res load (preview is already in slideCurrent)
+          // Delay full-res load — user might still be swiping fast
+          // Preview is already visible from the adjacent slide preload
           const existingImg = slideCurrent.querySelector('img');
           if (existingImg) {
             existingImg.onload = null;
-            showQuality('loading');
-            loadFullRes(item, existingImg);
+            showQuality('preview');
+            const delayedItem = item;
+            fullResDelayTimer = setTimeout(() => {
+              fullResDelayTimer = null;
+              if (items[currentLbIndex]?.id !== delayedItem.id) return;
+              showQuality('loading');
+              loadFullRes(delayedItem);
+            }, 300);
           } else {
             loadProgressive(item);
           }
@@ -2164,6 +2438,11 @@
           ${item.latitude && item.longitude ? `<span>${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}</span>` : ''}
         </div>
       `;
+
+      // Prefetch more items if approaching end of loaded list
+      if (hasMore && !loading && currentLbIndex >= items.length - 10) {
+        loadItems();
+      }
     }
 
     // --- Touch: pinch-to-zoom + pan + swipe nav ---
@@ -2190,6 +2469,9 @@
         lastPinchDist = pinchStartDist;
         lastTouchCenter = getTouchCenter(e.touches);
       } else if (e.touches.length === 1) {
+        // Always record touch start position for tap detection
+        swipeStartX = e.touches[0].clientX;
+        swipeStartY = e.touches[0].clientY;
         if (img && zoomLevel > 1.001) {
           // Panning: photos only when zoomed
           e.preventDefault();
@@ -2200,10 +2482,11 @@
           panStartY = e.touches[0].clientY;
           panStartPanX = panX;
           panStartPanY = panY;
+          // Swap to preview once at pan start for performance
+          swapToPreview();
+          clearTimeout(interactionTimer);
         } else {
           // Start potential swipe (photos at zoom=1 + all videos)
-          swipeStartX = e.touches[0].clientX;
-          swipeStartY = e.touches[0].clientY;
           touchSwiping = true;
           touchSwipeLocked = false;
           swipeDragX = 0;
@@ -2219,6 +2502,9 @@
       if (e.touches.length === 2 && img) {
         // Pinch-to-zoom: photos only
         e.preventDefault();
+        // Swap to preview during pinch for performance
+        swapToPreview();
+        scheduleFullResSwap();
         const dist = getTouchDist(e.touches);
         const center = getTouchCenter(e.touches);
 
@@ -2269,13 +2555,8 @@
               // Vertical drag — enter drag-to-dismiss mode
               touchSwiping = false;
               dragDismissing = true;
-              // Hide all UI like when zoomed
-              lbPrev.style.display = 'none';
-              lbNext.style.display = 'none';
-              lbClose.style.display = 'none';
-              lbDownload.style.display = 'none';
-              lbInfo.style.display = 'none';
-              lbQuality.style.display = 'none';
+              // Hide all UI
+              setControlsVisible(false);
               e.preventDefault();
               return;
             }
@@ -2313,7 +2594,7 @@
         panY = clamped.y;
         targetPanX = panX;
         targetPanY = panY;
-        renderZoom();
+        renderPan();
       }
     }, { passive: false });
 
@@ -2339,13 +2620,10 @@
           lbContent.style.transform = '';
           lightbox.style.transition = 'background 0.25s ease-out';
           lightbox.style.background = '';
-          // Restore UI elements
-          lbPrev.style.display = '';
-          lbNext.style.display = '';
-          lbClose.style.display = '';
-          lbDownload.style.display = '';
-          lbInfo.style.display = '';
-          lbQuality.style.display = '';
+          // Restore UI elements (unless in immersive mode or zoomed)
+          if (!controlsHidden && zoomLevel <= 1.001) {
+            setControlsVisible(true);
+          }
           setTimeout(() => {
             lbContent.style.transition = '';
             lightbox.style.transition = '';
@@ -2369,6 +2647,10 @@
         }
       }
       if (e.touches.length === 0) {
+        if (touchPanning) {
+          // Swap back to full-res after touch pan ends
+          scheduleFullResSwap();
+        }
         touchPanning = false;
       }
     });
@@ -2390,13 +2672,24 @@
       const item = items[index];
       if (!item) return;
 
+      // Invalidate all in-flight loads from previous navigation
+      loadGeneration++;
+
       // Abort any in-flight full-res download
       abortFullRes();
+      clearTimeout(fullResDelayTimer);
+      fullResDelayTimer = null;
       // Clear any pending wheel swipe
       clearTimeout(wheelSwipeSettleTimer);
       wheelSwipeAccum = 0;
 
+      rotation = 0;
+      fullResSrc = null;
+      previewSrc = null;
+      clearTimeout(interactionTimer);
+      clearTimeout(singleTapTimer);
       resetZoom();
+      wasZoomedState = false; // ensure clean state after reset (safety net)
       // Reset swipe track position
       swipeTrack.style.transition = '';
       swipeTrack.style.transform = 'translateX(-33.3333%)';
@@ -2420,6 +2713,7 @@
           const img = new Image();
           img.draggable = false;
           img.src = cachedUrl;
+          fullResSrc = cachedUrl;
           slideCurrent.innerHTML = '';
           slideCurrent.appendChild(img);
           showQuality('full');
@@ -2448,9 +2742,18 @@
           ${item.latitude && item.longitude ? `<span>${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}</span>` : ''}
         </div>
       `;
+
+      // Prefetch more items if approaching end of loaded list
+      if (hasMore && !loading && currentLbIndex >= items.length - 10) {
+        loadItems();
+      }
     }
 
     document.getElementById('lbClose').addEventListener('click', closeLightbox);
+    document.getElementById('lbRotate').addEventListener('click', () => {
+      if (currentLbIndex < 0) return;
+      rotateLeft();
+    });
     document.getElementById('lbDownload').addEventListener('click', () => {
       if (currentLbIndex < 0) return;
       const item = items[currentLbIndex];
@@ -2502,6 +2805,9 @@
       if (e.key === '0') {
         animateResetZoom();
       }
+      if (e.key === 'r' || e.key === 'R') {
+        rotateLeft();
+      }
     });
 
     // Click outside photo to close (but not after a swipe)
@@ -2510,8 +2816,14 @@
       // Don't close if this click came right after a swipe
       if (Date.now() - lastSwipeTime < 300) return;
       const tag = e.target.tagName;
-      // Don't close if clicked on the actual photo/video, a button, or inside the content area
-      if (tag === 'IMG' || tag === 'VIDEO' || tag === 'BUTTON' || e.target.closest('button')) return;
+      // Don't close if clicked on a button, or inside the content area
+      if (tag === 'BUTTON' || e.target.closest('button')) return;
+      if (tag === 'VIDEO') return;
+      // Click on the image itself = toggle immersive mode (desktop)
+      if (tag === 'IMG' && e.target.closest('.lightbox-content')) {
+        toggleImmersive();
+        return;
+      }
       if (e.target.closest('.lightbox-content')) return;
       closeLightbox();
     });
