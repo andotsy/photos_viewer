@@ -114,6 +114,41 @@
       accent-color: var(--accent);
     }
 
+    /* Mobile size toggle button (hidden on desktop) */
+    .size-toggle {
+      display: none;
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 6px;
+      align-items: center;
+      transition: color 0.15s;
+    }
+    .size-toggle:hover { color: var(--text); }
+    .size-toggle.active { color: var(--accent); }
+    .size-toggle svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+    .size-popup {
+      display: none;
+      position: fixed;
+      top: 56px;
+      left: 0;
+      right: 0;
+      z-index: 99;
+      background: rgba(26, 26, 26, 0.95);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      align-items: center;
+      gap: 12px;
+    }
+    .size-popup.open { display: flex; }
+    .size-popup label { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+    .size-popup input[type="range"] { flex: 1; accent-color: var(--accent); }
+
     /* --- Gallery grid --- */
     .gallery-container {
       margin-top: 56px;
@@ -731,21 +766,134 @@
       padding: 8px 4px 0;
     }
 
+    /* --- People grid --- */
+    .people-container {
+      display: none;
+      margin-top: 56px;
+      padding: 24px;
+      min-height: calc(100vh - 56px);
+    }
+
+    .people-container.active { display: block; }
+
+    .people-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .person-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      padding: 12px 8px;
+      border-radius: 12px;
+      transition: background 0.15s;
+    }
+
+    .person-card:hover { background: var(--bg-surface); }
+
+    .person-avatar {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: var(--bg-surface);
+      margin-bottom: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    .person-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      text-align: center;
+      line-height: 1.3;
+      max-width: 130px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .person-count {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    /* Person detail header (back button + name) */
+    .person-detail-header {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 56px;
+      z-index: 101;
+      align-items: center;
+      background: rgba(26, 26, 26, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+      gap: 12px;
+    }
+
+    .person-detail-header.active { display: flex; }
+
+    .person-back-btn {
+      background: none;
+      border: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 6px 10px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 0.15s;
+    }
+
+    .person-back-btn:hover { background: var(--bg-hover); }
+
+    .person-detail-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.3px;
+    }
+
+    .person-detail-count {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-left: auto;
+    }
+
     /* Responsive */
     @media (max-width: 640px) {
       header { padding: 0 12px; gap: 8px; }
       .logo { display: none; }
-      nav button { padding: 6px 12px; }
+      nav button { padding: 6px 10px; font-size: 12px; }
       .gallery-container { padding: 8px; }
       .grid { gap: 2px; }
       .stats { display: none; }
       :root { --thumb-size: 120px; }
-      .size-slider label { display: none; }
-      .size-slider input { width: 60px; }
+      .size-slider { display: none; }
+      .size-toggle { display: flex; }
       .controls { gap: 8px; }
       .search-panel { padding: 10px 12px; }
       .search-row { gap: 6px; }
       .search-input { min-width: 140px; }
+      .people-container { padding: 16px 8px; }
+      .people-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; }
+      .person-avatar { width: 80px; height: 80px; }
+      .person-card { padding: 8px 4px; }
+      .person-name { font-size: 12px; max-width: 95px; }
     }
   </style>
 </head>
@@ -755,12 +903,16 @@
     <nav id="nav">
       <button class="active" data-tab="photos">Photos</button>
       <button data-tab="videos">Videos</button>
+      <button data-tab="people">People & Pets</button>
       <button data-tab="map">Map</button>
     </nav>
     <div class="controls">
       <span class="stats" id="stats"></span>
       <button class="search-toggle" id="searchToggle" title="Search">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </button>
+      <button class="size-toggle" id="sizeToggle" title="Thumbnail size">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/></svg>
       </button>
       <div class="size-slider">
         <label>Size</label>
@@ -789,10 +941,28 @@
     <div class="search-results-info" id="searchInfo"></div>
   </div>
 
+  <div class="size-popup" id="sizePopup">
+    <label>Thumbnail size</label>
+    <input type="range" id="sizeSliderMobile" min="100" max="400" value="200" step="20">
+  </div>
+
   <div class="gallery-container" id="gallery"></div>
 
   <div id="mapContainer" style="display:none; position:fixed; top:56px; left:0; right:0; bottom:0; z-index:50;">
     <div id="map" style="width:100%; height:100%;"></div>
+  </div>
+
+  <div class="people-container" id="peopleContainer">
+    <div class="people-grid" id="peopleGrid"></div>
+  </div>
+
+  <div class="person-detail-header" id="personDetailHeader">
+    <button class="person-back-btn" id="personBackBtn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      Back
+    </button>
+    <span class="person-detail-title" id="personDetailTitle"></span>
+    <span class="person-detail-count" id="personDetailCount"></span>
   </div>
 
   <div class="cluster-collage-header" id="clusterCollageHeader">
@@ -834,6 +1004,10 @@
     const PAGE_SIZE = 80;
     let searchMode = false;
     let searchParams = {};  // { q, from, to, type }
+    let peopleData = null;  // cached people list
+    let personDetailMode = false; // showing a specific person's photos
+    let currentPersonId = null;
+    let currentPersonName = null;
 
     // --- Elements ---
     const gallery = document.getElementById('gallery');
@@ -861,6 +1035,12 @@
     const searchBtn = document.getElementById('searchBtn');
     const searchClear = document.getElementById('searchClear');
     const searchInfo = document.getElementById('searchInfo');
+    const peopleContainer = document.getElementById('peopleContainer');
+    const peopleGrid = document.getElementById('peopleGrid');
+    const personDetailHeader = document.getElementById('personDetailHeader');
+    const personDetailTitle = document.getElementById('personDetailTitle');
+    const personDetailCount = document.getElementById('personDetailCount');
+    const personBackBtn = document.getElementById('personBackBtn');
 
     // --- Init ---
     loadStats();
@@ -878,16 +1058,27 @@
         searchParams = {};
         searchInfo.textContent = '';
       }
-      // Toggle map vs gallery view
+      // Exit person detail mode
+      exitPersonDetail();
+
+      // Toggle views
       const mapContainer = document.getElementById('mapContainer');
       if (currentTab === 'map') {
         gallery.style.display = 'none';
+        peopleContainer.classList.remove('active');
         mapContainer.style.display = 'block';
         initMap();
+        return;
+      } else if (currentTab === 'people') {
+        gallery.style.display = 'none';
+        mapContainer.style.display = 'none';
+        peopleContainer.classList.add('active');
+        loadPeople();
         return;
       } else {
         gallery.style.display = 'block';
         mapContainer.style.display = 'none';
+        peopleContainer.classList.remove('active');
       }
 
       items = [];
@@ -899,21 +1090,47 @@
     // --- Size slider ---
     sizeSlider.addEventListener('input', (e) => {
       document.documentElement.style.setProperty('--thumb-size', e.target.value + 'px');
+      sizeSliderMobile.value = e.target.value;
+    });
+
+    // --- Mobile size popup ---
+    const sizeToggle = document.getElementById('sizeToggle');
+    const sizePopup = document.getElementById('sizePopup');
+    const sizeSliderMobile = document.getElementById('sizeSliderMobile');
+
+    sizeToggle.addEventListener('click', () => {
+      const isOpen = sizePopup.classList.toggle('open');
+      sizeToggle.classList.toggle('active', isOpen);
+      // Close search panel if open
+      if (isOpen && searchPanel.classList.contains('open')) {
+        searchPanel.classList.remove('open');
+        searchToggle.classList.remove('active');
+      }
+      updateGalleryMargin();
+    });
+
+    sizeSliderMobile.addEventListener('input', (e) => {
+      document.documentElement.style.setProperty('--thumb-size', e.target.value + 'px');
+      sizeSlider.value = e.target.value;
     });
 
     // --- Search ---
     function updateGalleryMargin() {
-      if (searchPanel.classList.contains('open')) {
-        gallery.style.marginTop = (56 + searchPanel.offsetHeight) + 'px';
-      } else {
-        gallery.style.marginTop = '56px';
-      }
+      let extra = 0;
+      if (searchPanel.classList.contains('open')) extra += searchPanel.offsetHeight;
+      if (sizePopup.classList.contains('open')) extra += sizePopup.offsetHeight;
+      gallery.style.marginTop = (56 + extra) + 'px';
     }
     window.addEventListener('resize', () => { updateGalleryMargin(); invalidateDimsCache(); });
 
     searchToggle.addEventListener('click', () => {
       const isOpen = searchPanel.classList.toggle('open');
       searchToggle.classList.toggle('active', isOpen);
+      // Close size popup if open
+      if (isOpen && sizePopup.classList.contains('open')) {
+        sizePopup.classList.remove('open');
+        sizeToggle.classList.remove('active');
+      }
       updateGalleryMargin();
       if (isOpen) searchInput.focus();
     });
@@ -967,6 +1184,96 @@
         navBtns[0].classList.add('active');
         loadItems();
       }
+    });
+
+    // --- People ---
+    async function loadPeople() {
+      if (peopleData) {
+        renderPeople(peopleData);
+        return;
+      }
+      peopleGrid.innerHTML = '<div class="loading-sentinel"><div class="spinner"></div></div>';
+      try {
+        const res = await fetch('/api/people');
+        const data = await res.json();
+        peopleData = data.people;
+        renderPeople(peopleData);
+      } catch (err) {
+        console.error('Failed to load people:', err);
+        peopleGrid.innerHTML = '<div class="empty-state"><div class="icon">&#128100;</div><p>Failed to load people</p></div>';
+      }
+    }
+
+    function renderPeople(people) {
+      if (!people || people.length === 0) {
+        peopleGrid.innerHTML = '<div class="empty-state"><div class="icon">&#128100;</div><p>No people or pets found</p></div>';
+        return;
+      }
+      let personNum = 0;
+      let petNum = 0;
+      const frag = document.createDocumentFragment();
+      people.forEach((person) => {
+        const card = document.createElement('div');
+        card.className = 'person-card';
+        let name;
+        if (person.name) {
+          name = person.name;
+        } else if (person.isPet) {
+          petNum++;
+          name = `Pet ${petNum}`;
+        } else {
+          personNum++;
+          name = `Person ${personNum}`;
+        }
+        card.innerHTML = `
+          <img class="person-avatar" src="/api/people/${person.id}/thumb?size=240" alt="${name}" loading="lazy">
+          <div class="person-name">${name}</div>
+          <div class="person-count">${person.faceCount} photo${person.faceCount !== 1 ? 's' : ''}</div>
+        `;
+        card.addEventListener('click', () => openPersonDetail(person.id, name, person.faceCount));
+        frag.appendChild(card);
+      });
+      peopleGrid.innerHTML = '';
+      peopleGrid.appendChild(frag);
+    }
+
+    function openPersonDetail(personId, name, faceCount) {
+      personDetailMode = true;
+      currentPersonId = personId;
+      currentPersonName = name;
+
+      // Show detail header, hide main header
+      personDetailHeader.classList.add('active');
+      personDetailTitle.textContent = name;
+      personDetailCount.textContent = `${faceCount} photo${faceCount !== 1 ? 's' : ''}`;
+
+      // Hide people grid, show gallery for this person's photos
+      peopleContainer.classList.remove('active');
+      gallery.style.display = 'block';
+      gallery.innerHTML = '';
+      items = [];
+      hasMore = true;
+      loading = false;
+      loadItems();
+    }
+
+    function exitPersonDetail() {
+      if (!personDetailMode) return;
+      personDetailMode = false;
+      currentPersonId = null;
+      currentPersonName = null;
+      personDetailHeader.classList.remove('active');
+      gallery.innerHTML = '';
+      items = [];
+      hasMore = true;
+      loading = false;
+    }
+
+    personBackBtn.addEventListener('click', () => {
+      exitPersonDetail();
+      // Go back to people grid
+      gallery.style.display = 'none';
+      peopleContainer.classList.add('active');
     });
 
     // --- Map ---
@@ -1157,6 +1464,10 @@
       if (e.key === 'Escape' && clusterCollage.classList.contains('active') && !lightbox.classList.contains('active')) {
         closeClusterCollage();
       }
+      // Close person detail on Escape
+      if (e.key === 'Escape' && personDetailMode && !lightbox.classList.contains('active') && !clusterCollage.classList.contains('active')) {
+        personBackBtn.click();
+      }
     });
 
     // --- Infinite scroll ---
@@ -1192,6 +1503,8 @@
         if (searchParams.to) params.set('to', searchParams.to);
         if (searchParams.type) params.set('type', searchParams.type);
         url = `/api/search?${params}`;
+      } else if (personDetailMode && currentPersonId) {
+        url = `/api/people/${currentPersonId}/photos?limit=${PAGE_SIZE}&offset=${offset}`;
       } else {
         url = `/api/${currentTab}?limit=${PAGE_SIZE}&offset=${offset}`;
       }

@@ -31,6 +31,18 @@ CONTAINER="photo_viewer"
 IMAGE="photo_viewer:latest-${ARCH}"
 TARBALL="${PROJECT_DIR}/photo_viewer_latest_${ARCH}.tar.gz"
 
+# --- SSH multiplexing: reuse a single connection for all SSH/SCP calls ---
+SSH_SOCK="/tmp/deploy-ssh-${HOST//[^a-zA-Z0-9]/_}"
+# Clean up any stale socket from a previous run
+ssh -S "$SSH_SOCK" -O check "$HOST" 2>/dev/null && ssh -S "$SSH_SOCK" -O exit "$HOST" 2>/dev/null || true
+rm -f "$SSH_SOCK"
+echo "Establishing SSH connection to $HOST..."
+ssh -fNM -S "$SSH_SOCK" "$HOST"
+cleanup_ssh() { ssh -S "$SSH_SOCK" -O exit "$HOST" 2>/dev/null || true; }
+trap cleanup_ssh EXIT
+# Wrapper: all SSH calls go through the master socket
+rssh() { ssh -S "$SSH_SOCK" "$@"; }
+
 echo "Deploy configuration:"
 echo "  Host:      $HOST"
 echo "  Library:   $LIB_PATH"
@@ -53,16 +65,16 @@ fi
 echo ""
 echo "=== Transferring image to $HOST ==="
 REMOTE_TMP="/tmp/photo_viewer_${ARCH}.tar.gz"
-ssh "$HOST" "cat > $REMOTE_TMP" < "$TARBALL"
+rssh "$HOST" "cat > $REMOTE_TMP" < "$TARBALL"
 echo "Transferred $(du -h "$TARBALL" | cut -f1) to $HOST:$REMOTE_TMP"
 
 echo ""
 echo "=== Loading image ==="
-ssh "$HOST" "docker load < $REMOTE_TMP && rm -f $REMOTE_TMP"
+rssh "$HOST" "docker load < $REMOTE_TMP && rm -f $REMOTE_TMP"
 
 echo ""
 echo "=== Deploying container ==="
-ssh "$HOST" "
+rssh "$HOST" "
     docker rm -f $CONTAINER 2>/dev/null || true
     docker run -d \
         --name $CONTAINER \
@@ -75,7 +87,7 @@ ssh "$HOST" "
 echo ""
 echo "=== Waiting for startup ==="
 sleep 4
-ssh "$HOST" "docker logs $CONTAINER 2>&1"
+rssh "$HOST" "docker logs $CONTAINER 2>&1"
 
 echo ""
 echo "=== Deployed ==="

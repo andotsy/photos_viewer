@@ -154,7 +154,8 @@ const stmtStats = db.prepare(`
   SELECT
     (SELECT count(*) FROM ZASSET WHERE ZTRASHEDSTATE = 0 AND ZHIDDEN = 0 AND ZKIND = 0) as photos,
     (SELECT count(*) FROM ZASSET WHERE ZTRASHEDSTATE = 0 AND ZHIDDEN = 0 AND ZKIND = 1) as videos,
-    (SELECT count(*) FROM ZASSET WHERE ZTRASHEDSTATE = 0 AND ZHIDDEN = 0) as total
+    (SELECT count(*) FROM ZASSET WHERE ZTRASHEDSTATE = 0 AND ZHIDDEN = 0) as total,
+    (SELECT count(*) FROM ZPERSON p WHERE p.ZFACECOUNT >= 10 AND EXISTS (SELECT 1 FROM ZDETECTEDFACE df JOIN ZFACECROP fc ON fc.Z_PK = df.ZFACECROP WHERE df.ZPERSONFORFACE = p.Z_PK AND fc.ZRESOURCEDATA IS NOT NULL)) as people
 `);
 
 // --- Helpers ---
@@ -635,6 +636,228 @@ app.get('/api/search', (req, res) => {
   }
 });
 
+// --- People & Pets API ---
+// List all persons that have a face crop available and enough detections to be meaningful
+const stmtPeople = db.prepare(`
+  SELECT
+    p.Z_PK as id,
+    p.ZDISPLAYNAME as displayName,
+    p.ZFULLNAME as fullName,
+    p.ZFACECOUNT as faceCount,
+    p.ZPERSONUUID as personUuid,
+    p.ZKEYFACE as keyFaceId,
+    p.ZTYPE as type,
+    p.ZDETECTIONTYPE as detectionType
+  FROM ZPERSON p
+  WHERE p.ZFACECOUNT >= 10
+    AND EXISTS (
+      SELECT 1 FROM ZDETECTEDFACE df
+      JOIN ZFACECROP fc ON fc.Z_PK = df.ZFACECROP
+      WHERE df.ZPERSONFORFACE = p.Z_PK
+        AND fc.ZRESOURCEDATA IS NOT NULL
+    )
+  ORDER BY p.ZFACECOUNT DESC
+`);
+
+// Find the best face crop for a person: try all faces for this person that have a crop
+const stmtFaceCrop = db.prepare(`
+  SELECT fc.ZRESOURCEDATA as cropData
+  FROM ZDETECTEDFACE df
+  JOIN ZFACECROP fc ON fc.Z_PK = df.ZFACECROP
+  WHERE df.ZPERSONFORFACE = ?
+    AND fc.ZRESOURCEDATA IS NOT NULL
+  LIMIT 1
+`);
+
+// Fallback: get key face bounding box + asset for cropping from original
+const stmtKeyFaceBBox = db.prepare(`
+  SELECT
+    df.ZCENTERX as centerX,
+    df.ZCENTERY as centerY,
+    df.ZSIZE as size,
+    df.ZASSETFORFACE as assetId
+  FROM ZDETECTEDFACE df
+  WHERE df.Z_PK = ?
+`);
+
+// Photos for a person (paginated), through ZDETECTEDFACE join
+const stmtPersonPhotos = db.prepare(`
+  SELECT
+    a.Z_PK as id,
+    a.ZUUID as uuid,
+    a.ZDIRECTORY as directory,
+    a.ZFILENAME as filename,
+    a.ZUNIFORMTYPEIDENTIFIER as uti,
+    a.ZWIDTH as width,
+    a.ZHEIGHT as height,
+    a.ZDATECREATED as dateCreated,
+    a.ZFAVORITE as favorite,
+    a.ZHIDDEN as hidden,
+    a.ZTRASHEDSTATE as trashed,
+    a.ZKIND as kind,
+    a.ZLATITUDE as latitude,
+    a.ZLONGITUDE as longitude,
+    a.ZDURATION as duration,
+    aa.ZORIGINALFILENAME as originalFilename
+  FROM ZDETECTEDFACE df
+  JOIN ZASSET a ON a.Z_PK = df.ZASSETFORFACE
+  LEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES
+  WHERE df.ZPERSONFORFACE = ?
+    AND a.ZTRASHEDSTATE = 0
+    AND a.ZHIDDEN = 0
+  GROUP BY a.Z_PK
+  ORDER BY a.ZDATECREATED DESC
+  LIMIT ? OFFSET ?
+`);
+
+const stmtPersonPhotoCount = db.prepare(`
+  SELECT count(DISTINCT a.Z_PK) as total
+  FROM ZDETECTEDFACE df
+  JOIN ZASSET a ON a.Z_PK = df.ZASSETFORFACE
+  WHERE df.ZPERSONFORFACE = ?
+    AND a.ZTRASHEDSTATE = 0
+    AND a.ZHIDDEN = 0
+`);
+
+app.get('/api/people', (req, res) => {
+  try {
+    const rows = stmtPeople.all();
+    const people = rows.map((p, i) => ({
+      id: p.id,
+      name: p.displayName || p.fullName || null,
+      faceCount: p.faceCount,
+      personUuid: p.personUuid,
+      type: p.type,
+      isPet: p.detectionType === 3 || p.detectionType === 4,
+    }));
+    res.json({ people, total: people.length });
+  } catch (err) {
+    console.error('People error:', err.message);
+    res.status(500).json({ error: 'Failed to load people' });
+  }
+});
+
+// Serve face thumbnail for a person
+app.get('/api/people/:id/thumb', async (req, res) => {
+  try {
+    const personId = parseInt(req.params.id);
+    const size = parseInt(req.query.size) || 200;
+    const cacheKey = `face_${personId}_${size}`;
+
+    // Check memory cache
+    if (thumbCache.has(cacheKey)) {
+      res.set('Content-Type', 'image/jpeg');
+      res.set('Cache-Control', 'public, max-age=86400');
+      return res.send(thumbCache.get(cacheKey));
+    }
+
+    // Strategy 1: Use ZFACECROP blob data
+    const crop = stmtFaceCrop.get(personId);
+    if (crop && crop.cropData) {
+      try {
+        const buffer = await sharp(crop.cropData)
+          .resize(size, size, { fit: 'cover' })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+        cacheSet(cacheKey, buffer);
+        res.set('Content-Type', 'image/jpeg');
+        res.set('Cache-Control', 'public, max-age=86400');
+        return res.send(buffer);
+      } catch (sharpErr) {
+        console.warn('Face crop sharp error for person', personId, sharpErr.message);
+        // Fall through to strategy 2
+      }
+    }
+
+    // Strategy 2: Crop from original photo using bounding box
+    // Find the person's key face
+    const person = db.prepare('SELECT ZKEYFACE FROM ZPERSON WHERE Z_PK = ?').get(personId);
+    if (person && person.ZKEYFACE) {
+      const bbox = stmtKeyFaceBBox.get(person.ZKEYFACE);
+      if (bbox && bbox.assetId) {
+        const asset = stmtPhotoById.get(bbox.assetId);
+        if (asset) {
+          const origPath = getOriginalPath(asset.directory, asset.filename);
+          // Try derivative first (faster to read than potentially-HEIC original)
+          let sourcePath = findPreviewDerivative(asset.uuid) || origPath;
+          if (fs.existsSync(sourcePath)) {
+            try {
+              const meta = await sharp(sourcePath, { failOn: 'none' }).metadata();
+              const imgW = meta.width;
+              const imgH = meta.height;
+              // bbox coords are normalized 0-1 (centerX, centerY, size is fraction of width)
+              const faceW = bbox.size * imgW * 1.8; // expand crop by 1.8x for context
+              const faceH = faceW; // square crop
+              const left = Math.max(0, Math.round(bbox.centerX * imgW - faceW / 2));
+              const top = Math.max(0, Math.round(bbox.centerY * imgH - faceH / 2));
+              const cropW = Math.min(Math.round(faceW), imgW - left);
+              const cropH = Math.min(Math.round(faceH), imgH - top);
+
+              if (cropW > 10 && cropH > 10) {
+                const buffer = await sharp(sourcePath, { failOn: 'none' })
+                  .extract({ left, top, width: cropW, height: cropH })
+                  .resize(size, size, { fit: 'cover' })
+                  .jpeg({ quality: 80 })
+                  .toBuffer();
+                cacheSet(cacheKey, buffer);
+                res.set('Content-Type', 'image/jpeg');
+                res.set('Cache-Control', 'public, max-age=86400');
+                return res.send(buffer);
+              }
+            } catch (cropErr) {
+              console.warn('Face bbox crop error for person', personId, cropErr.message);
+            }
+          }
+        }
+      }
+    }
+
+    // Strategy 3: Just return the thumbnail of a photo this person appears in
+    const anyFace = db.prepare(`
+      SELECT df.ZASSETFORFACE as assetId
+      FROM ZDETECTEDFACE df
+      WHERE df.ZPERSONFORFACE = ?
+      LIMIT 1
+    `).get(personId);
+    if (anyFace && anyFace.assetId) {
+      const asset = stmtPhotoById.get(anyFace.assetId);
+      if (asset) {
+        const deriv = findDerivativeWithSize(asset.uuid);
+        if (deriv) {
+          const buffer = await sharp(deriv.path)
+            .resize(size, size, { fit: 'cover' })
+            .jpeg({ quality: 75 })
+            .toBuffer();
+          cacheSet(cacheKey, buffer);
+          res.set('Content-Type', 'image/jpeg');
+          res.set('Cache-Control', 'public, max-age=86400');
+          return res.send(buffer);
+        }
+      }
+    }
+
+    res.status(404).send('No face thumbnail available');
+  } catch (err) {
+    console.error('Face thumb error:', err.message);
+    res.status(500).send('Error generating face thumbnail');
+  }
+});
+
+// Photos for a specific person (paginated)
+app.get('/api/people/:id/photos', (req, res) => {
+  try {
+    const personId = parseInt(req.params.id);
+    const limit = Math.min(parseInt(req.query.limit) || 80, 200);
+    const offset = parseInt(req.query.offset) || 0;
+    const { total } = stmtPersonPhotoCount.get(personId);
+    const rows = stmtPersonPhotos.all(personId, limit, offset).map(formatAsset);
+    res.json({ items: rows, total, limit, offset });
+  } catch (err) {
+    console.error('Person photos error:', err.message);
+    res.status(500).json({ error: 'Failed to load person photos' });
+  }
+});
+
 // --- Geo/Map API ---
 // Returns all geotagged photos with minimal data for map markers
 // Uses a single query (no pagination) — ~11k rows, ~1MB JSON, fast enough
@@ -710,7 +933,7 @@ app.listen(PORT, () => {
   const stats = stmtStats.get();
   console.log(`\n  Photos Viewer running at http://localhost:${PORT}`);
   console.log(`  Library: ${PHOTOS_LIB}`);
-  console.log(`  ${stats.photos} photos, ${stats.videos} videos, ${stats.favorites} favorites\n`);
+  console.log(`  ${stats.photos} photos, ${stats.videos} videos, ${stats.people} people\n`);
 });
 
 // Cleanup
