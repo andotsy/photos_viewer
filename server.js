@@ -39,20 +39,15 @@ const CORE_DATA_EPOCH = 978307200;
 
 const app = express();
 
-// The Photos.sqlite database uses WAL mode, which requires write access to the -shm
-// file even for reads. If the library lives on a read-only filesystem (common for
-// external drives and older macOS data volumes), we must copy the DB to a writable
-// location. We try direct readonly open first; if that fails, we fall back to a copy.
+// The Photos.sqlite database uses WAL mode. Even with readonly: true, SQLite may need
+// to refresh the WAL index later, causing "database disk image is malformed" errors
+// if the source DB is modified (e.g. by Photos.app via SMB). Always copy to a writable
+// temp location for a consistent snapshot.
 const os = require('os');
 let db;
-try {
-  db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
-  db.prepare('SELECT 1 FROM ZASSET LIMIT 1').get(); // verify WAL access works
-  console.log('Opened database directly (readonly).');
-} catch {
-  // Read-only filesystem or WAL lock — copy DB to temp
+{
   const TEMP_DB = path.join(os.tmpdir(), 'photos_viewer_db.sqlite');
-  console.log('Database is on a read-only filesystem, copying to temp location...');
+  console.log('Copying database to temp location for consistent access...');
   fs.copyFileSync(DB_PATH, TEMP_DB);
   const walPath = DB_PATH + '-wal';
   const shmPath = DB_PATH + '-shm';

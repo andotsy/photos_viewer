@@ -3010,6 +3010,7 @@
       lbQuality.innerHTML = '';
 
       if (item.isVideo) {
+        lbRotate.style.display = 'none';
         slideCurrent.innerHTML = '';
         slidePrev.innerHTML = '';
         slideNext.innerHTML = '';
@@ -3019,6 +3020,7 @@
         };
         slideCurrent.appendChild(wrapper);
       } else {
+        lbRotate.style.display = '';
         // Check if we already have a cached full-res blob for this item
         const cachedUrl = fullResCache.get(item.id);
         if (cachedUrl) {
