@@ -150,7 +150,7 @@ const stmtStats = db.prepare(`
     (SELECT count(*) FROM ZASSET WHERE ZTRASHEDSTATE = 0 AND ZHIDDEN = 0 AND ZKIND = 0) as photos,
     (SELECT count(*) FROM ZASSET WHERE ZTRASHEDSTATE = 0 AND ZHIDDEN = 0 AND ZKIND = 1) as videos,
     (SELECT count(*) FROM ZASSET WHERE ZTRASHEDSTATE = 0 AND ZHIDDEN = 0) as total,
-    (SELECT count(*) FROM ZPERSON p WHERE p.ZFACECOUNT >= 10 AND EXISTS (SELECT 1 FROM ZDETECTEDFACE df JOIN ZFACECROP fc ON fc.Z_PK = df.ZFACECROP WHERE df.ZPERSONFORFACE = p.Z_PK AND fc.ZRESOURCEDATA IS NOT NULL)) as people
+    (SELECT count(*) FROM ZPERSON p WHERE p.ZFACECOUNT >= 10 AND p.ZTYPE != -1 AND p.ZMANUALORDER != -1 AND EXISTS (SELECT 1 FROM ZDETECTEDFACE df JOIN ZFACECROP fc ON fc.Z_PK = df.ZFACECROP WHERE df.ZPERSONFORFACE = p.Z_PK AND fc.ZRESOURCEDATA IS NOT NULL)) as people
 `);
 
 // --- Helpers ---
@@ -633,6 +633,7 @@ app.get('/api/search', (req, res) => {
 
 // --- People & Pets API ---
 // List all persons that have a face crop available and enough detections to be meaningful
+// ZTYPE = -1 means hidden by user in Photos.app; ZMANUALORDER = -1 means not in People album
 const stmtPeople = db.prepare(`
   SELECT
     p.Z_PK as id,
@@ -645,13 +646,15 @@ const stmtPeople = db.prepare(`
     p.ZDETECTIONTYPE as detectionType
   FROM ZPERSON p
   WHERE p.ZFACECOUNT >= 10
+    AND p.ZTYPE != -1
+    AND p.ZMANUALORDER != -1
     AND EXISTS (
       SELECT 1 FROM ZDETECTEDFACE df
       JOIN ZFACECROP fc ON fc.Z_PK = df.ZFACECROP
       WHERE df.ZPERSONFORFACE = p.Z_PK
         AND fc.ZRESOURCEDATA IS NOT NULL
     )
-  ORDER BY p.ZFACECOUNT DESC
+  ORDER BY p.ZMANUALORDER ASC
 `);
 
 // Find the best face crop for a person: try all faces for this person that have a crop
